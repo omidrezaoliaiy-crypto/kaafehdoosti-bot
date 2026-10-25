@@ -591,6 +591,20 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
+# ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
+def keep_alive_worker():
+    time.sleep(60)
+    while True:
+        try:
+            req = urllib.request.Request("https://kaafehdoosti-bot.onrender.com", headers={'User-Agent': 'KeepAlivePing/1.0'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pass
+        except Exception:
+            pass
+        time.sleep(600)  # هر ۱۰ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
+
+threading.Thread(target=keep_alive_worker, daemon=True).start()
+
 # ----------------- حلقه اصلی دریافت پیام‌ها -----------------
 def run_bot():
     print("ربات نسخه ۲ با موفقیت فعال شد و آماده دریافت پیام است...", flush=True)
