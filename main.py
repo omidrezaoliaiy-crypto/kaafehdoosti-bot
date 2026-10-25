@@ -165,24 +165,34 @@ SPECIAL_NAMES = {
     'کاظمی': 'kazemi', 'صادقی': 'sadeghi'
 }
 
+def transliterate_word(w):
+    clean_w = w.replace('‌', '').replace('\u200c', '').strip()
+    if clean_w in SPECIAL_NAMES:
+        return SPECIAL_NAMES[clean_w]
+    res = ""
+    for ch in clean_w:
+        res += PERSIAN_TO_EN.get(ch, ch)
+    res = "".join(c for c in res.lower() if c.isalpha())
+    return res
+
 def persian_to_english(text):
     words = text.strip().split()
-    en_words = []
-    for w in words:
-        clean_w = w.replace('‌', '').replace('\u200c', '') # remove zero-width non-joiner
-        if clean_w in SPECIAL_NAMES:
-            en_words.append(SPECIAL_NAMES[clean_w])
-        else:
-            res = ""
-            for ch in clean_w:
-                res += PERSIAN_TO_EN.get(ch, ch)
-            en_words.append(res)
-    username = " ".join(en_words).lower()
-    # فقط حروف انگلیسی و فاصله
-    username = "".join(c for c in username if c.isalpha() or c == ' ')
-    # حذف فاصله‌های اضافی
-    username = " ".join(username.split())
-    return username.strip()
+    if not words:
+        return "user"
+    en_words = [transliterate_word(w) for w in words if transliterate_word(w)]
+    if not en_words:
+        return "user"
+    if len(en_words) == 1:
+        return en_words[0]
+    
+    # اسم را کامل می‌نویسد و فامیلی را مخفف (فقط حرف اول) می‌کند
+    first_name = " ".join(en_words[:-1])
+    last_name_initial = en_words[-1][0] if en_words[-1] else ""
+    if last_name_initial:
+        username = f"{first_name} {last_name_initial}"
+    else:
+        username = first_name
+    return username.strip().lower()
 
 # ----------------- تلگرام ای‌پی‌آی -----------------
 def tg_request(method, data=None):
@@ -614,17 +624,10 @@ def handle_callback_query(cq):
         password = user_info["password"]
         persian_name = user_info["persian_name"]
         
-        txt_info = (
-            "مشخصات اتصال به سرور کافه دوستی:\n\n"
-            f"آدرس سرور: {TT_HOST}\n"
-            f"پورت: {TT_PORT}\n"
-            f"نام کاربری: {username}\n"
-            f"رمز عبور: {password}\n\n"
-            "به کافه دوستی خوش آمدید!"
-        )
-        
         if "txt" in data or "both" in data:
-            send_message(target_chat_id, txt_info)
+            send_message(target_chat_id, f"مشخصات اتصال به سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+            send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+            send_message(target_chat_id, f"رمز عبور شما:\n{password}")
         
         if "tt" in data or "both" in data:
             tt_bytes = generate_tt_file_bytes(username, password, persian_name)
