@@ -498,6 +498,19 @@ def handle_callback_query(cq):
             send_message(ADMIN_CHAT_ID, "اطلاعات کاربر یافت نشد.")
             return
         
+        if user_info.get("step") == "COMPLETED":
+            tg_request("answerCallbackQuery", {
+                "callback_query_id": cq_id,
+                "text": "این کاربر قبلاً تایید و یوزرش ساخته شده است.",
+                "show_alert": True
+            })
+            tg_request("editMessageReplyMarkup", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reply_markup": {"inline_keyboard": []}
+            })
+            return
+        
         chars = string.ascii_letters + string.digits
         password_30 = ''.join(secrets.choice(chars) for _ in range(30))
         username = user_info["username"]
@@ -511,13 +524,22 @@ def handle_callback_query(cq):
         
         set_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        send_message(ADMIN_CHAT_ID, f"درخواست کاربر {user_info['persian_name']} تایید شد و یوزر {username} با موفقیت در سرور کافه دوستی ساخته شد.")
+        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف کامل دکمه‌های تایید و رد
+        updated_caption = (
+            "🔔 درخواست عضویت در کافه دوستی:\n\n"
+            f"👤 نام فارسی: {user_info['persian_name']}\n"
+            f"🔤 نام کاربری: {username}\n"
+            f"📱 شماره موبایل: {phone}\n\n"
+            "وضعیت: تایید شد و یوزر در سرور ساخته شد ✅"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
         
-        # ۱. ابتدا ارسال متن کامل قوانین سرور برای کاربر
-        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید)\n\n"
-        send_message(target_chat_id, rules_header + RULES_TEXT)
-        
-        # ۲. سپس ارسال گزینه‌های دریافت حساب
+        # ارسال گزینه‌های دریافت حساب برای کاربر
         delivery_keyboard = {
             "inline_keyboard": [
                 [{"text": "دریافت فایل آماده ورود (فایل TT) 📁", "callback_data": f"get_tt_{target_chat_id}"}],
@@ -534,13 +556,48 @@ def handle_callback_query(cq):
     
     if data.startswith("reject_"):
         target_chat_id = int(data.split("_")[1])
+        user_info = get_user(target_chat_id)
+        if user_info and user_info.get("step") in ["COMPLETED", "REJECTED"]:
+            tg_request("answerCallbackQuery", {
+                "callback_query_id": cq_id,
+                "text": "تکلیف این درخواست قبلاً مشخص شده است.",
+                "show_alert": True
+            })
+            tg_request("editMessageReplyMarkup", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reply_markup": {"inline_keyboard": []}
+            })
+            return
+        
+        persian_name = user_info['persian_name'] if user_info else 'کاربر'
         set_user(target_chat_id, step="REJECTED")
-        send_message(ADMIN_CHAT_ID, "درخواست کاربر رد شد.")
+        
+        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف کامل دکمه‌ها
+        updated_caption = (
+            "🔔 درخواست عضویت در کافه دوستی:\n\n"
+            f"👤 نام فارسی: {persian_name}\n\n"
+            "وضعیت: این درخواست توسط مدیریت رد شد ❌"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
         send_message(target_chat_id, "متاسفانه درخواست عضویت شما در سرور کافه دوستی توسط مدیریت تایید نشد.")
         return
     
     # دکمه‌های تحویل اکانت به کاربر
     if data.startswith("get_tt_") or data.startswith("get_txt_") or data.startswith("get_both_"):
+        # حذف دکمه‌های انتخاب پس از کلیک برای تمیز ماندن چت کاربر
+        tg_request("editMessageReplyMarkup", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
         target_chat_id = int(data.split("_")[-1])
         user_info = get_user(target_chat_id)
         if not user_info or not user_info["password"]:
