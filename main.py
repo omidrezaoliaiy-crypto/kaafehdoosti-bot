@@ -376,50 +376,51 @@ def handle_message(msg):
         msg_text = (
             f"نام فارسی شما: {persian_name}\n"
             f"نام کاربری انگلیسی پیشنهادی شما: {username}\n\n"
-            "حالا لطفا شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید تا کد تایید برایتان ارسال شود:"
+            "حالا لطفا شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:"
         )
         send_message(chat_id, msg_text)
         return
     
     if step == "WAIT_PHONE":
-        clean_phone = text.replace("+98", "0").replace(" ", "").replace("-", "")
+        clean_phone = text.replace("+98", "0").replace("0098", "0").replace(" ", "").replace("-", "")
         fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
         clean_phone = clean_phone.translate(fa_to_en)
+        if clean_phone.startswith("98"):
+            clean_phone = "0" + clean_phone[2:]
+        elif clean_phone.startswith("9") and len(clean_phone) == 10:
+            clean_phone = "0" + clean_phone
         
         if not (clean_phone.startswith("09") and len(clean_phone) == 11 and clean_phone.isdigit()):
             send_message(chat_id, "شماره موبایل وارد شده صحیح نیست. لطفا یک شماره معتبر ۱۱ رقمی مانند ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید:")
             return
         
-        sms_code = str(random.randint(10000, 99999))
-        set_user(chat_id, step="WAIT_CODE", phone=clean_phone, sms_code=sms_code)
-        
-        success, res_msg = send_sms_otp(clean_phone, sms_code)
-        
-        if KAVENEGAR_API_KEY:
-            send_message(chat_id, "کد تایید ۵ رقمی برای شماره موبایل شما پیامک شد. لطفا کد دریافتی را اینجا تایپ و ارسال کنید:")
-        else:
-            send_message(chat_id, f"کد تایید برای شماره شما صادر شد.\n(حالت آزمایشی: کد تایید شما {sms_code} است)\nلطفا کد را وارد کنید:")
+        set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
+        voice_prompt = (
+            f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅\n\n"
+            "مرحله پایانی (ویس معرفی):\n"
+            "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "۱. نام و نام خانوادگی\n"
+            "۲. محل سکونت (شهر یا استان)\n"
+            "۳. سن\n"
+            "۴. وضعیت تاهل\n\n"
+            "منتظر ارسال ویس شما هستیم..."
+        )
+        send_message(chat_id, voice_prompt)
         return
     
     if step == "WAIT_CODE":
-        fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
-        entered_code = text.strip().translate(fa_to_en)
-        
-        if entered_code == user["sms_code"]:
-            set_user(chat_id, step="WAIT_VOICE")
-            voice_prompt = (
-                "شماره موبایل شما با موفقیت تایید شد ✅\n\n"
-                "مرحله پایانی (ویس معرفی):\n"
-                "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
-                "۱. نام و نام خانوادگی\n"
-                "۲. محل سکونت (شهر یا استان)\n"
-                "۳. سن\n"
-                "۴. وضعیت تاهل\n\n"
-                "منتظر ارسال ویس شما هستیم..."
-            )
-            send_message(chat_id, voice_prompt)
-        else:
-            send_message(chat_id, "کد وارد شده اشتباه است. لطفا کد ۵ رقمی را با دقت وارد کنید:")
+        set_user(chat_id, step="WAIT_VOICE")
+        voice_prompt = (
+            "شماره موبایل شما با موفقیت ثبت شد ✅\n\n"
+            "مرحله پایانی (ویس معرفی):\n"
+            "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "۱. نام و نام خانوادگی\n"
+            "۲. محل سکونت (شهر یا استان)\n"
+            "۳. سن\n"
+            "۴. وضعیت تاهل\n\n"
+            "منتظر ارسال ویس شما هستیم..."
+        )
+        send_message(chat_id, voice_prompt)
         return
     
     if step == "WAIT_VOICE":
@@ -440,7 +441,7 @@ def handle_message(msg):
             "🔔 درخواست عضویت و حساب جدید در کافه دوستی:\n\n"
             f"👤 نام فارسی: {user_info['persian_name']}\n"
             f"🔤 نام کاربری انگلیسی پیشنهادی: {user_info['username']}\n"
-            f"📱 شماره موبایل تاییدشده: {user_info['phone']}\n"
+            f"📱 شماره موبایل: {user_info['phone']}\n"
             f"💬 کاربر تلگرام: {tg_username} (شناسه: {chat_id})\n\n"
             "لطفا ویس بالا را گوش دهید و تصمیم‌گیری کنید:"
         )
@@ -566,6 +567,10 @@ def handle_callback_query(cq):
             tt_bytes = generate_tt_file_bytes(username, password, persian_name)
             filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
             send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        # ارسال متن کامل قوانین سرور به محض دریافت یوزر
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        send_message(target_chat_id, rules_header + RULES_TEXT)
         return
 
 # ----------------- سرور سلامت برای رندر (Health Check) -----------------
