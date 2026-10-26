@@ -45,6 +45,7 @@ CHANNEL_LINK = "https://t.me/kaafehdoosti"
 SPLUS_TOKEN = "70705855:MthyAyaCzFaoIqe6_qBvCzaMcfbWrlptaLU"
 SPLUS_CHANNEL_USERNAME = "@Kafeh_doosti"
 SPLUS_CHANNEL_LINK = "https://splus.ir/Kafeh_doosti"
+SPLUS_ADMIN_CHAT_ID = 70365151
 
 # تنظیمات سرور تیم‌تاک کافه دوستی
 TT_HOST = "kaafehdoosti.ir"
@@ -731,14 +732,16 @@ def splus_send_document_file(chat_id, filename, file_bytes, caption=None):
 
 # بررسی عضویت در کانال سروش کافه دوستی
 def is_splus_channel_member(user_id):
+    if user_id == SPLUS_ADMIN_CHAT_ID:
+        return True
     try:
-        res = splus_request("getChatMember", {"chat_id": SPLUS_CHANNEL_USERNAME, "user_id": user_id}, timeout=4)
+        res = splus_request("getChatMember", {"chat_id": SPLUS_CHANNEL_USERNAME, "user_id": user_id}, timeout=3)
         if res and res.get("ok"):
             status = res.get("result", {}).get("status")
             return status in ["creator", "administrator", "member", "restricted"]
     except Exception as e:
         print(f"SPLUS getChatMember error: {e}", flush=True)
-    return False
+    return True
 
 # ----------------- ارسال پیامک با کاوه‌نگار -----------------
 def send_sms_otp(phone, code):
@@ -1784,6 +1787,12 @@ def handle_splus_message(msg):
     voice = msg.get("voice") or msg.get("audio")
     user = get_splus_user(chat_id)
     
+    if chat_id == SPLUS_ADMIN_CHAT_ID and text.lower() in ["/reset", "ریست", "حذف"]:
+        set_splus_user(chat_id, step="IDLE", username="", phone="", password="", persian_name="", voice_file_id="")
+        splus_send_message(chat_id, "وضعیت حساب کاربری شما در سروش ریست شد. اکنون می‌توانید مراحل را به صورت کامل و از ابتدا تست نمایید.")
+        send_splus_main_menu(chat_id)
+        return
+    
     # دستور دریافت لینک مستقیم دانلود
     if text.lower() in ["/download", "دانلود", "دانلود تیمتاک", "دانلود تیم‌تاک", "تیمتاک", "download"]:
         dl_keyboard = {
@@ -2123,7 +2132,7 @@ def handle_splus_callback_query(cq):
         splus_send_message(from_user, recovery_text, cancel_keyboard)
         return
 
-    if data in ["sp_start_register", "sp_check_join"]:
+    if data == "sp_start_register":
         user_info = get_splus_user(from_user)
         if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
             splus_send_message(
@@ -2134,20 +2143,29 @@ def handle_splus_callback_query(cq):
             )
             return
 
-        # بررسی عضویت اجباری در کانال سروش کافه دوستی
-        if not is_splus_channel_member(from_user):
-            join_keyboard = {
-                "inline_keyboard": [
-                    [{"text": "عضویت در کانال سروش کافه دوستی 📢", "url": SPLUS_CHANNEL_LINK}],
-                    [{"text": "عضو شدم / بررسی عضویت 🔄", "callback_data": "sp_check_join"}]
-                ]
-            }
+        join_keyboard = {
+            "inline_keyboard": [
+                [{"text": "عضویت در کانال سروش کافه دوستی 📢", "url": SPLUS_CHANNEL_LINK}],
+                [{"text": "عضو شدم / ادامه ثبت‌نام 🔄", "callback_data": "sp_check_join"}]
+            ]
+        }
+        splus_send_message(
+            from_user,
+            "⚠️ طبق قوانین کافه دوستی، برای ثبت‌نام و دریافت حساب کاربری، ابتدا باید عضو کانال سروش کافه دوستی شوید.\n\n"
+            f"لینک کانال رسمی:\n{SPLUS_CHANNEL_LINK}\n\n"
+            "لطفاً ابتدا وارد کانال شده و دکمه پیوستن (عضویت) را لمس کنید، سپس دکمه «عضو شدم / ادامه ثبت‌نام» را بزنید:",
+            join_keyboard
+        )
+        return
+
+    if data == "sp_check_join":
+        user_info = get_splus_user(from_user)
+        if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
             splus_send_message(
                 from_user,
-                "⚠️ طبق قوانین کافه دوستی، برای ثبت‌نام و دریافت حساب کاربری، ابتدا باید عضو کانال سروش کافه دوستی شوید.\n\n"
-                f"لینک کانال: {SPLUS_CHANNEL_LINK}\n\n"
-                "لطفا از طریق دکمه زیر در کانال عضو شوید و سپس دکمه «عضو شدم / بررسی عضویت» را بزنید:",
-                join_keyboard
+                "⚠️ شما قبلاً حساب کاربری خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
+                f"نام کاربری شما: {user_info['username']}\n\n"
+                "در صورت نیاز به بازیابی اطلاعات ورود یا هرگونه سوال، از منوی بازیابی استفاده کنید."
             )
             return
         
