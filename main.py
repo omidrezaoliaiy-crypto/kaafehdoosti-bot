@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-ربات تلگرام ثبت‌نام و یوزردِهی خودکار سرور تیم‌تاک کافه دوستی
+ربات دو پلتفرمه تلگرام و سروش پلاس برای ثبت‌نام، احراز هویت و یوزردِهی خودکار سرور تیم‌تاک کافه دوستی
 """
 
 import os
+os.environ.pop("http_proxy", None)
+os.environ.pop("https_proxy", None)
+os.environ.pop("HTTP_PROXY", None)
+os.environ.pop("HTTPS_PROXY", None)
+
 import sys
 import time
 import json
@@ -16,17 +21,30 @@ import sqlite3
 import threading
 import urllib.request
 import urllib.parse
+import urllib.error
+
+# تنظیم اوپنر بدون پروکسی برای اطمینان از اتصال پایدار
+try:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    urllib.request.install_opener(opener)
+except Exception:
+    pass
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
 
-# ----------------- تنظیمات اصلی -----------------
+# ----------------- تنظیمات اصلی تلگرام و سروش پلاس -----------------
 BOT_TOKEN = "8873777481:AAGD4DjF9AebcYqfZen8sUpbxu2wA8pZXqk"
 ADMIN_CHAT_ID = 8834927594  # پشتیبانی کافه دوستی (@Pkaafehdoosti)
 CHANNEL_USERNAME = "@kaafehdoosti"
 CHANNEL_LINK = "https://t.me/kaafehdoosti"
+
+# تنظیمات ربات سروش پلاس کافه دوستی
+SPLUS_TOKEN = "70705855:MthyAyaCzFaoIqe6_qBvCzaMcfbWrlptaLU"
+SPLUS_CHANNEL_USERNAME = "@Kafeh_doosti"
+SPLUS_CHANNEL_LINK = "https://splus.ir/Kafeh_doosti"
 
 # تنظیمات سرور تیم‌تاک کافه دوستی
 TT_HOST = "kaafehdoosti.ir"
@@ -63,7 +81,7 @@ RULES_TEXT = """به نام خداوند متعال ✨
 
 📜 قوانین سرور کافه دوستی
 
-۱. عضویت در کانال تلگرامی «کافه دوستی» برای همه کاربران الزامی است. اگر کسی عضو کانال نشود، یوزر او ساخته نمی شود و اگر کانال را ترک کند، یوزرش از سرور حذف می شود.
+۱. عضویت در کانال تلگرامی و سروش «کافه دوستی» برای کاربران الزامی است. اگر کسی عضو کانال نشود، یوزر او ساخته نمی شود و اگر کانال را ترک کند، یوزرش از سرور حذف می شود.
 📌 نکته: کسی که یوزرش از سرور حذف شود، تا سه ماه امکان بازگشت به سرور را ندارد.
 
 ۲. هنگام پخش یک ترک، قطع کردن Audio Box حتی به شوخی، تخلف شمرده می شود. همچنین جست و جوی مطالب غیراخلاقی در Audio Player ممنوع است؛ در این مورد کاربر تا دو بار اخطار می گیرد و بار سوم یوزرش به مدت یک هفته از کافه دوستی محروم می شود. اگر این تخلف بیش از سه بار دیده شود، یوزر او از سرور حذف می گردد.
@@ -88,7 +106,7 @@ RULES_TEXT = """به نام خداوند متعال ✨
 
 ---
 
-📢 کانال اطلاع رسانی
+📢 کانال های اطلاع رسانی:
 🔗 https://t.me/kaafehdoosti
 🔗 https://splus.ir/Kafeh_doosti
 
@@ -103,6 +121,7 @@ DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_database
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # کاربران تلگرام
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             chat_id INTEGER PRIMARY KEY,
@@ -116,6 +135,21 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # کاربران سروش پلاس
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS splus_users (
+            chat_id INTEGER PRIMARY KEY,
+            step TEXT,
+            persian_name TEXT,
+            username TEXT,
+            phone TEXT,
+            sms_code TEXT,
+            voice_file_id TEXT,
+            password TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # رصد فعالیت سرور تیم‌تاک
     c.execute('''
         CREATE TABLE IF NOT EXISTS tt_activity (
             username TEXT PRIMARY KEY,
@@ -129,6 +163,7 @@ def init_db():
 
 init_db()
 
+# --- متدهای دیتابیس تلگرام ---
 def get_user(chat_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -162,6 +197,52 @@ def get_user_by_phone(phone):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT chat_id, step, persian_name, username, password FROM users WHERE phone=?", (phone,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "chat_id": row[0],
+            "step": row[1],
+            "persian_name": row[2],
+            "username": row[3],
+            "password": row[4]
+        }
+    return None
+
+# --- متدهای دیتابیس سروش پلاس ---
+def get_splus_user(chat_id):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT step, persian_name, username, phone, sms_code, voice_file_id, password FROM splus_users WHERE chat_id=?", (chat_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "step": row[0],
+            "persian_name": row[1],
+            "username": row[2],
+            "phone": row[3],
+            "sms_code": row[4],
+            "voice_file_id": row[5],
+            "password": row[6]
+        }
+    return None
+
+def set_splus_user(chat_id, **kwargs):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    user = get_splus_user(chat_id)
+    if not user:
+        c.execute("INSERT INTO splus_users (chat_id, step) VALUES (?, ?)", (chat_id, kwargs.get("step", "IDLE")))
+    for k, v in kwargs.items():
+        c.execute(f"UPDATE splus_users SET {k}=? WHERE chat_id=?", (v, chat_id))
+    conn.commit()
+    conn.close()
+
+def get_splus_user_by_phone(phone):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT chat_id, step, persian_name, username, password FROM splus_users WHERE phone=?", (phone,))
     row = c.fetchone()
     conn.close()
     if row:
@@ -321,6 +402,7 @@ def cleanup_inactive_users():
                 c = conn.cursor()
                 c.execute("DELETE FROM tt_activity WHERE username=?", (username,))
                 c.execute("UPDATE users SET step='DELETED_INACTIVE' WHERE LOWER(username)=?", (username.lower(),))
+                c.execute("UPDATE splus_users SET step='DELETED_INACTIVE' WHERE LOWER(username)=?", (username.lower(),))
                 conn.commit()
                 conn.close()
                 
@@ -343,9 +425,9 @@ def run_inactivity_checker():
         time.sleep(86400) # هر ۲۴ ساعت یک بار بررسی می‌کند
 
 def monitor_teamtalk_activity():
-    """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران"""
+    """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران در کانال مدیریت (chanid=13)"""
     time.sleep(5)
-    print("شروع به کار ربات ناظر کافه دوستی...", flush=True)
+    print("شروع به کار ربات ناظر کافه دوستی در کانال مدیریت...", flush=True)
     while True:
         s = None
         try:
@@ -356,7 +438,7 @@ def monitor_teamtalk_activity():
             login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
             s.sendall(login_cmd.encode('utf-8'))
             time.sleep(1)
-            # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=13) تا در لابی نماند
+            # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=13) با پسورد 12123123
             s.sendall(b'join chanid=13 password="12123123"\r\n')
             
             last_ping = time.time()
@@ -446,7 +528,6 @@ def persian_to_english(text):
     if len(en_words) == 1:
         return en_words[0]
     
-    # اسم را کامل می‌نویسد و فامیلی را مخفف (فقط حرف اول) می‌کند
     first_name = " ".join(en_words[:-1])
     last_name_initial = en_words[-1][0] if en_words[-1] else ""
     if last_name_initial:
@@ -519,7 +600,37 @@ def send_voice(chat_id, voice_file_id, caption=None, reply_markup=None):
         payload["reply_markup"] = reply_markup
     return tg_request("sendVoice", payload)
 
-def send_document_file(chat_id, filename, file_bytes, caption=None):
+def send_voice_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
+    boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVoice"
+    
+    body = bytearray()
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n'.encode())
+    if caption:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+    if reply_markup:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="voice"; filename="{filename}"\r\n'.encode())
+    body.extend(b'Content-Type: audio/ogg\r\n\r\n')
+    body.extend(file_bytes)
+    body.extend(b'\r\n')
+    body.extend(f"--{boundary}--\r\n".encode())
+    
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    req = urllib.request.Request(url, data=bytes(body), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Error sending voice file to Telegram: {e}", flush=True)
+        # در صورت بروز مشکل در فرمت ogg، به صورت سند صوتی ارسال می‌شود
+        return send_document_file(chat_id, filename, file_bytes, caption=caption, reply_markup=reply_markup)
+
+def send_document_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
     boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
     
@@ -528,7 +639,10 @@ def send_document_file(chat_id, filename, file_bytes, caption=None):
     body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n'.encode())
     if caption:
         body.extend(f"--{boundary}\r\n".encode())
-        body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode())
+        body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+    if reply_markup:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
     body.extend(f"--{boundary}\r\n".encode())
     body.extend(f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode())
     body.extend(b'Content-Type: application/octet-stream\r\n\r\n')
@@ -539,18 +653,91 @@ def send_document_file(chat_id, filename, file_bytes, caption=None):
     headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
     req = urllib.request.Request(url, data=bytes(body), headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=25) as resp:
             return json.loads(resp.read().decode('utf-8'))
     except Exception as e:
         print(f"Error sending document: {e}", flush=True)
         return None
 
-# بررسی عضویت در کانال کافه دوستی
+# بررسی عضویت در کانال تلگرامی کافه دوستی
 def is_channel_member(user_id):
     res = tg_request("getChatMember", {"chat_id": CHANNEL_USERNAME, "user_id": user_id})
     if res and res.get("ok"):
         status = res.get("result", {}).get("status")
         return status in ["creator", "administrator", "member", "restricted"]
+    return False
+
+# ----------------- سروش پلاس ای‌پی‌آی -----------------
+def splus_request(method, data=None, timeout=15):
+    url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/{method}"
+    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    try:
+        req_data = json.dumps(data).encode('utf-8') if data else None
+        req = urllib.request.Request(url, data=req_data, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"SPLUS API Error ({method}): {e}", flush=True)
+        return None
+
+def splus_send_message(chat_id, text, reply_markup=None):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return splus_request("sendMessage", payload)
+
+def splus_download_file_bytes(file_id):
+    try:
+        res = splus_request("getFile", {"file_id": file_id})
+        if res and res.get("ok"):
+            file_path = res["result"].get("file_path")
+            if file_path:
+                dl_url = f"https://api.splus.ir/file/bot{SPLUS_TOKEN}/{file_path}"
+                req = urllib.request.Request(dl_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    return resp.read()
+    except Exception as e:
+        print(f"Error downloading file from SPLUS: {e}", flush=True)
+    return None
+
+def splus_send_document_file(chat_id, filename, file_bytes, caption=None):
+    boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
+    url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/sendDocument"
+    
+    body = bytearray()
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n'.encode())
+    if caption:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode())
+    body.extend(b'Content-Type: application/octet-stream\r\n\r\n')
+    body.extend(file_bytes)
+    body.extend(b'\r\n')
+    body.extend(f"--{boundary}--\r\n".encode())
+    
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": "Mozilla/5.0"}
+    req = urllib.request.Request(url, data=bytes(body), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Error sending document to SPLUS: {e}", flush=True)
+        return None
+
+# بررسی عضویت در کانال سروش کافه دوستی
+def is_splus_channel_member(user_id):
+    try:
+        res = splus_request("getChatMember", {"chat_id": SPLUS_CHANNEL_USERNAME, "user_id": user_id}, timeout=4)
+        if res and res.get("ok"):
+            status = res.get("result", {}).get("status")
+            return status in ["creator", "administrator", "member", "restricted"]
+    except Exception as e:
+        print(f"SPLUS getChatMember error: {e}", flush=True)
     return False
 
 # ----------------- ارسال پیامک با کاوه‌نگار -----------------
@@ -583,9 +770,8 @@ def create_teamtalk_account(username, password, phone):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(10)
         s.connect((TT_HOST, TT_PORT))
-        s.recv(4096) # banner
+        s.recv(4096)
         
-        # لاگین ربات با نام مستعار «ربات یوزر دهی»
         login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
@@ -594,20 +780,14 @@ def create_teamtalk_account(username, password, phone):
             s.close()
             return False, "عدم پذیرش ورود ادمین ربات به سرور تیم‌تاک"
         
-        # ساخت اکانت جدید:
-        # ۱. دسترسی بدون لاگین چندباره و بدون ساخت کانال موقت (TT_USER_RIGHTS)
-        # ۲. ثبت شماره موبایل در بخش توضیحات (note="{phone}")
-        # ۳. محدودیت ارسال ۱۰ پیام در یک دقیقه (cmdflood=[10,60000])
         cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} cmdflood=[10,60000]\r\n'
         s.sendall(cmd_new.encode('utf-8'))
         time.sleep(1)
         
-        # ذخیره تغییرات در دیتابیس سرور
         s.sendall(b'saveconfig\r\n')
         time.sleep(0.5)
         s.close()
         
-        # به‌روزرسانی کش حساب‌ها
         TT_CACHE["usernames"].add(username.lower())
         if phone:
             TT_CACHE["phones"].add(phone)
@@ -628,7 +808,6 @@ def reset_teamtalk_account(username, password, phone=""):
         time.sleep(1)
         s.recv(8192)
         
-        # حذف و ایجاد مجدد با رمز عبور جدید
         del_cmd = f'delaccount username="{username}"\r\n'
         s.sendall(del_cmd.encode('utf-8'))
         time.sleep(0.5)
@@ -674,6 +853,12 @@ def find_existing_account(search_query):
             conn.close()
             return {"username": row[0], "phone": row[1], "persian_name": row[2], "password": row[3]}
             
+        c.execute("SELECT username, phone, persian_name, password FROM splus_users WHERE phone=?", (phone_candidate,))
+        row_sp = c.fetchone()
+        if row_sp:
+            conn.close()
+            return {"username": row_sp[0], "phone": row_sp[1], "persian_name": row_sp[2], "password": row_sp[3]}
+            
         c.execute("SELECT username, note FROM tt_activity WHERE note LIKE ?", (f"%{phone_candidate}%",))
         row_act = c.fetchone()
         if row_act:
@@ -685,6 +870,12 @@ def find_existing_account(search_query):
     if row:
         conn.close()
         return {"username": row[0], "phone": row[1], "persian_name": row[2], "password": row[3]}
+        
+    c.execute("SELECT username, phone, persian_name, password FROM splus_users WHERE LOWER(username)=?", (query.lower(),))
+    row_sp = c.fetchone()
+    if row_sp:
+        conn.close()
+        return {"username": row_sp[0], "phone": row_sp[1], "persian_name": row_sp[2], "password": row_sp[3]}
         
     c.execute("SELECT username, note FROM tt_activity WHERE LOWER(username)=?", (query.lower(),))
     row_act = c.fetchone()
@@ -726,7 +917,10 @@ def generate_tt_file_bytes(username, password, nickname):
 '''
     return content.encode('utf-8')
 
-# ----------------- مدیریت پیام‌های کاربران -----------------
+# ==============================================================================
+# ========================= بخش ۱: پیام‌ها و دکمه‌های تلگرام =========================
+# ==============================================================================
+
 def handle_message(msg):
     chat_id = msg["chat"]["id"]
     text = msg.get("text", "").strip()
@@ -783,10 +977,9 @@ def handle_message(msg):
             )
             send_message(chat_id, welcome_text, keyboard)
             
-            # ارسال گزارش به مدیر
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ استارت مجدد توسط کاربر دارای اکانت!\n"
+                "⚠️ استارت مجدد در تلگرام توسط کاربر دارای اکانت!\n"
                 f"👤 نام: {user_info.get('persian_name', 'نامشخص')}\n"
                 f"🔤 نام کاربری: {user_info.get('username')}\n"
                 f"📱 شماره تلفن: {user_info.get('phone', 'ندارد')}\n"
@@ -881,7 +1074,7 @@ def handle_message(msg):
         target_pname = user.get("persian_name", "نامشخص")
         
         admin_caption = (
-            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی (تلگرام):\n\n"
             f"🔤 نام کاربری: {target_uname}\n"
             f"📱 شماره تلفن: {target_phone if target_phone else 'ثبت‌نشده'}\n"
             f"👤 نام فارسی: {target_pname if target_pname else 'نامشخص'}\n"
@@ -906,7 +1099,6 @@ def handle_message(msg):
         persian_name = text
         username = persian_to_english(persian_name)
         
-        # بررسی تکراری نبودن نام کاربری در سرور تیم‌تاک
         u_set, p_set = get_tt_existing_cached()
         if username in u_set:
             send_message(
@@ -917,7 +1109,6 @@ def handle_message(msg):
                 "در غیر این صورت، لطفاً نام خود را به همراه پسوند یا به صورت کامل‌تر بنویسید و ارسال کنید:"
             )
             
-            # ارسال گزارش به مدیر
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
                 "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور!\n"
@@ -951,11 +1142,12 @@ def handle_message(msg):
             send_message(chat_id, "شماره موبایل وارد شده صحیح نیست. لطفا یک شماره معتبر ۱۱ رقمی مانند ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید:")
             return
         
-        # بررسی عدم تکراری بودن شماره تلفن (در سرور تیم‌تاک و دیتابیس ربات)
+        # بررسی عدم تکراری بودن شماره تلفن (در سرور تیم‌تاک، دیتابیس تلگرام و سروش)
         u_set, p_set = get_tt_existing_cached()
         db_user = get_user_by_phone(clean_phone)
+        sp_user = get_splus_user_by_phone(clean_phone)
         
-        if clean_phone in p_set or (db_user and db_user.get("step") == "COMPLETED" and db_user.get("chat_id") != chat_id):
+        if clean_phone in p_set or (db_user and db_user.get("step") == "COMPLETED" and db_user.get("chat_id") != chat_id) or (sp_user and sp_user.get("step") == "COMPLETED"):
             send_message(
                 chat_id,
                 "⚠️ این شماره موبایل قبلاً در سرور کافه دوستی ثبت شده و دارای حساب کاربری فعال می‌باشد.\n\n"
@@ -964,14 +1156,13 @@ def handle_message(msg):
                 "@pkaafehdoosti"
             )
             
-            # ارسال گزارش به مدیر
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
                 "⚠️ تلاش برای ثبت‌نام با شماره تکراری!\n"
                 f"📱 شماره تلفن واردشده: {clean_phone}\n"
                 f"👤 نام فارسی متقاضی: {user.get('persian_name', 'نامشخص')}\n"
                 f"💬 شناسه تلگرام: {chat_id}\n\n"
-                "وضعیت: این شماره از قبل دارای اکانت است و درخواست خودکار مسدود شد."
+                "وضعیت: این شماره از قبل دارای اکانت است و درخواست مسدود شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
             return
@@ -979,21 +1170,6 @@ def handle_message(msg):
         set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
         voice_prompt = (
             f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅\n\n"
-            "مرحله پایانی (ویس معرفی):\n"
-            "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
-            "۱. نام و نام خانوادگی\n"
-            "۲. محل سکونت (شهر یا استان)\n"
-            "۳. سن\n"
-            "۴. وضعیت تاهل\n\n"
-            "منتظر ارسال ویس شما هستیم..."
-        )
-        send_message(chat_id, voice_prompt)
-        return
-    
-    if step == "WAIT_CODE":
-        set_user(chat_id, step="WAIT_VOICE")
-        voice_prompt = (
-            "شماره موبایل شما با موفقیت ثبت شد ✅\n\n"
             "مرحله پایانی (ویس معرفی):\n"
             "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
             "۱. نام و نام خانوادگی\n"
@@ -1020,7 +1196,7 @@ def handle_message(msg):
         tg_username = f"@{tg_user.get('username')}" if tg_user.get('username') else "بدون آیدی"
         
         caption = (
-            "🔔 درخواست عضویت و حساب جدید در کافه دوستی:\n\n"
+            "🔔 درخواست عضویت و حساب جدید در کافه دوستی (تلگرام):\n\n"
             f"👤 نام فارسی: {user_info['persian_name']}\n"
             f"🔤 نام کاربری انگلیسی پیشنهادی: {user_info['username']}\n"
             f"📱 شماره موبایل: {user_info['phone']}\n"
@@ -1039,7 +1215,6 @@ def handle_message(msg):
         send_voice(ADMIN_CHAT_ID, voice_file_id, caption=caption, reply_markup=admin_keyboard)
         return
 
-# ----------------- مدیریت دکمه‌های شیشه‌ای -----------------
 def handle_callback_query(cq):
     cq_id = cq["id"]
     from_user = cq["from"]["id"]
@@ -1074,13 +1249,13 @@ def handle_callback_query(cq):
                 [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "dl_menu"}]
             ]
         }
-        msg = (
+        msg_str = (
             "💻 دانلود آخرین نسخه رسمی تیم‌تاک برای ویندوز (Windows):\n\n"
             "لینک دانلود مستقیم و رسمی از سرور اصلی تیم‌تاک (BearWare):\n"
             f"{win_link}\n\n"
             "پس از دانلود، فایل نصبی را اجرا کرده و مراحل نصب را انجام دهید."
         )
-        send_message(from_user, msg, win_keyboard)
+        send_message(from_user, msg_str, win_keyboard)
         return
 
     if data == "dl_android":
@@ -1093,7 +1268,7 @@ def handle_callback_query(cq):
                 [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "dl_menu"}]
             ]
         }
-        msg = (
+        msg_str = (
             "📱 دانلود آخرین نسخه رسمی تیم‌تاک برای اندروید (Android):\n\n"
             "۱. لینک رسمی تیم‌تاک در فروشگاه گوگل‌پلی (سایت اصلی تیم‌تاک):\n"
             f"{android_play_link}\n\n"
@@ -1101,7 +1276,7 @@ def handle_callback_query(cq):
             f"{android_apk_link}\n\n"
             "با لمس هر یک از دکمه‌های زیر، برنامه به طور مستقیم دانلود خواهد شد."
         )
-        send_message(from_user, msg, android_keyboard)
+        send_message(from_user, msg_str, android_keyboard)
         return
 
     if data == "back_to_main":
@@ -1136,7 +1311,7 @@ def handle_callback_query(cq):
             send_message(from_user, welcome_text, keyboard)
             return
 
-    # شروع فرآیند بازیابی حساب
+    # شروع فرآیند بازیابی حساب در تلگرام
     if data == "start_recover":
         set_user(from_user, step="RECOVER_WAIT_INPUT")
         recovery_text = (
@@ -1169,18 +1344,6 @@ def handle_callback_query(cq):
                 "@pkaafehdoosti",
                 resend_keyboard
             )
-            
-            # ارسال گزارش به مدیر
-            admin_alert = (
-                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ تلاش مجدد برای ثبت‌نام توسط کاربر دارای اکانت!\n"
-                f"👤 نام: {user_info.get('persian_name', 'نامشخص')}\n"
-                f"🔤 نام کاربری: {user_info.get('username')}\n"
-                f"📱 شماره ثبت‌شده: {user_info.get('phone', 'ندارد')}\n"
-                f"💬 شناسه تلگرام: {from_user}\n\n"
-                "وضعیت: درخواست مجدد توسط ربات مسدود شد."
-            )
-            send_message(ADMIN_CHAT_ID, admin_alert)
             return
 
         # بررسی عضویت اجباری در کانال
@@ -1199,12 +1362,11 @@ def handle_callback_query(cq):
             )
             return
         
-        # اگر عضو کانال بود، ورود به مرحله نام
         set_user(from_user, step="WAIT_NAME")
         send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅\n\nلطفا نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
         return
 
-    # ارسال مجدد مشخصات به کاربر قدیمی
+    # ارسال مجدد مشخصات به کاربر تلگرام
     if data.startswith("resend_"):
         target_chat_id = int(data.split("_")[1])
         user_info = get_user(target_chat_id)
@@ -1219,7 +1381,7 @@ def handle_callback_query(cq):
             send_message(target_chat_id, "اطلاعات ورود خود را چگونه مایلید دریافت کنید؟", delivery_keyboard)
             return
     
-    # دستورات مخصوص مدیر
+    # ----------------- تایید / رد درخواست‌های تلگرام توسط مدیر -----------------
     if data.startswith("approve_"):
         target_chat_id = int(data.split("_")[1])
         user_info = get_user(target_chat_id)
@@ -1245,7 +1407,6 @@ def handle_callback_query(cq):
         username = user_info["username"]
         phone = user_info["phone"]
         
-        # ساخت اکانت در تیم‌تاک همراه با شماره در توضیحات و محدودیت پیام
         ok, res = create_teamtalk_account(username, password_30, phone)
         if not ok:
             send_message(ADMIN_CHAT_ID, f"خطا در ساخت اکانت در سرور تیم‌تاک:\n{res}")
@@ -1253,9 +1414,8 @@ def handle_callback_query(cq):
         
         set_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف کامل دکمه‌های تایید و رد
         updated_caption = (
-            "🔔 درخواست عضویت در کافه دوستی:\n\n"
+            "🔔 درخواست عضویت در کافه دوستی (تلگرام):\n\n"
             f"👤 نام فارسی: {user_info['persian_name']}\n"
             f"🔤 نام کاربری: {username}\n"
             f"📱 شماره موبایل: {phone}\n\n"
@@ -1268,7 +1428,6 @@ def handle_callback_query(cq):
             "reply_markup": {"inline_keyboard": []}
         })
         
-        # ارسال گزینه‌های دریافت حساب برای کاربر
         delivery_keyboard = {
             "inline_keyboard": [
                 [{"text": "دریافت فایل آماده ورود (فایل TT) 📁", "callback_data": f"get_tt_{target_chat_id}"}],
@@ -1302,9 +1461,8 @@ def handle_callback_query(cq):
         persian_name = user_info['persian_name'] if user_info else 'کاربر'
         set_user(target_chat_id, step="REJECTED")
         
-        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف کامل دکمه‌ها
         updated_caption = (
-            "🔔 درخواست عضویت در کافه دوستی:\n\n"
+            "🔔 درخواست عضویت در کافه دوستی (تلگرام):\n\n"
             f"👤 نام فارسی: {persian_name}\n\n"
             "وضعیت: این درخواست توسط مدیریت رد شد ❌"
         )
@@ -1323,8 +1481,8 @@ def handle_callback_query(cq):
         send_message(target_chat_id, rejection_msg)
         return
 
-    # تایید بازیابی حساب کاربری توسط مدیر
-    if data.startswith("app_rec_"):
+    # تایید بازیابی تلگرام توسط مدیر
+    if data.startswith("app_rec_") and not data.startswith("app_rec_sp_"):
         target_chat_id = int(data.split("_")[-1])
         user_info = get_user(target_chat_id)
         if not user_info:
@@ -1335,7 +1493,6 @@ def handle_callback_query(cq):
         phone = user_info.get("phone", "")
         persian_name = user_info.get("persian_name", "")
         
-        # ساخت رمز عبور جدید امن ۳۰ کاراکتری
         chars = string.ascii_letters + string.digits
         password_30 = ''.join(secrets.choice(chars) for _ in range(30))
         
@@ -1346,9 +1503,8 @@ def handle_callback_query(cq):
             
         set_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف دکمه‌ها
         updated_caption = (
-            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی (تلگرام):\n\n"
             f"🔤 نام کاربری: {username}\n"
             f"📱 شماره تلفن: {phone if phone else 'ثبت‌نشده'}\n\n"
             "وضعیت: تایید شد و اطلاعات جدید حساب به متقاضی تحویل داده شد ✅"
@@ -1360,31 +1516,28 @@ def handle_callback_query(cq):
             "reply_markup": {"inline_keyboard": []}
         })
         
-        # ارسال مستقیم مشخصات و قوانین سرور به کاربر
         send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
         send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
         send_message(target_chat_id, f"نام کاربری شما:\n{username}")
         send_message(target_chat_id, f"رمز عبور جدید شما:\n{password_30}")
         
-        # ارسال فایل tt
         tt_bytes = generate_tt_file_bytes(username, password_30, persian_name if persian_name else username)
         filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
         send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
         
-        # ارسال متن کامل قوانین سرور
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         send_message(target_chat_id, rules_header + RULES_TEXT)
         return
 
-    # رد درخواست بازیابی توسط مدیر
-    if data.startswith("rej_rec_"):
+    # رد درخواست بازیابی تلگرام توسط مدیر
+    if data.startswith("rej_rec_") and not data.startswith("rej_rec_sp_"):
         target_chat_id = int(data.split("_")[-1])
         set_user(target_chat_id, step="REJECTED")
         
         tg_request("editMessageCaption", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": "🔄 درخواست بازیابی حساب کاربری:\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
+            "caption": "🔄 درخواست بازیابی حساب کاربری (تلگرام):\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
             "reply_markup": {"inline_keyboard": []}
         })
         
@@ -1396,9 +1549,167 @@ def handle_callback_query(cq):
         send_message(target_chat_id, rejection_msg)
         return
     
-    # دکمه‌های تحویل اکانت به کاربر
+    # ----------------- تایید / رد درخواست‌های سروش پلاس توسط مدیر -----------------
+    if data.startswith("app_sp_"):
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        if not user_info:
+            send_message(ADMIN_CHAT_ID, "اطلاعات کاربر در سروش یافت نشد.")
+            return
+        
+        if user_info.get("step") == "COMPLETED":
+            tg_request("answerCallbackQuery", {
+                "callback_query_id": cq_id,
+                "text": "این کاربر سروش قبلاً تایید و یوزرش ساخته شده است.",
+                "show_alert": True
+            })
+            tg_request("editMessageReplyMarkup", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reply_markup": {"inline_keyboard": []}
+            })
+            return
+        
+        chars = string.ascii_letters + string.digits
+        password_30 = ''.join(secrets.choice(chars) for _ in range(30))
+        username = user_info["username"]
+        phone = user_info.get("phone", "")
+        persian_name = user_info.get("persian_name", username)
+        
+        ok, res = create_teamtalk_account(username, password_30, phone)
+        if not ok:
+            send_message(ADMIN_CHAT_ID, f"خطا در ساخت اکانت سرور تیم‌تاک برای کاربر سروش:\n{res}")
+            return
+            
+        set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
+        
+        updated_caption = (
+            "🔔 درخواست عضویت از طریق سروش پلاس 📱:\n\n"
+            f"👤 نام فارسی: {persian_name}\n"
+            f"🔤 نام کاربری: {username}\n"
+            f"📱 شماره موبایل: {phone}\n"
+            f"💬 شناسه سروش: {target_chat_id}\n\n"
+            "وضعیت: تایید شد و یوزر در سروش تحویل داده شد ✅"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        # ارسال مشخصات، فایل tt و قوانین به کاربر در سروش
+        splus_send_message(target_chat_id, "🎉 تبریک! حساب کاربری شما در سرور تیم‌تاک کافه دوستی توسط مدیریت تایید و ساخته شد.")
+        splus_send_message(target_chat_id, f"مشخصات اتصال به سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+        splus_send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+        splus_send_message(target_chat_id, f"رمز عبور اختصاصی شما:\n{password_30}")
+        
+        tt_bytes = generate_tt_file_bytes(username, password_30, persian_name)
+        filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+        splus_send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        return
+
+    if data.startswith("rej_sp_"):
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        persian_name = user_info['persian_name'] if user_info else 'کاربر'
+        set_splus_user(target_chat_id, step="REJECTED")
+        
+        updated_caption = (
+            "🔔 درخواست عضویت از طریق سروش پلاس 📱:\n\n"
+            f"👤 نام فارسی: {persian_name}\n"
+            f"💬 شناسه سروش: {target_chat_id}\n\n"
+            "وضعیت: این درخواست توسط مدیریت رد شد ❌"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        rejection_msg = (
+            "درود و احترام؛\n\n"
+            "ضمن قدردانی از ابراز لطف و همراهی شما با مجموعه کافه دوستی، به اطلاع می‌رسانیم که پس از بررسی تیم مدیریت، متاسفانه در حال حاضر امکان تایید درخواست عضویت شما وجود ندارد.\n\n"
+            "با آرزوی بهروزی، شادکامی و موفقیت روزافزون برای شما. 🌸"
+        )
+        splus_send_message(target_chat_id, rejection_msg)
+        return
+
+    # تایید بازیابی سروش پلاس توسط مدیر
+    if data.startswith("app_rec_sp_"):
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        if not user_info:
+            send_message(ADMIN_CHAT_ID, "اطلاعات کاربر سروش یافت نشد.")
+            return
+            
+        username = user_info["username"]
+        phone = user_info.get("phone", "")
+        persian_name = user_info.get("persian_name", "")
+        
+        chars = string.ascii_letters + string.digits
+        password_30 = ''.join(secrets.choice(chars) for _ in range(30))
+        
+        ok = reset_teamtalk_account(username, password_30, phone)
+        if not ok:
+            send_message(ADMIN_CHAT_ID, f"خطا در بازیابی اکانت سروش {username} در سرور تیم‌تاک.")
+            return
+            
+        set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
+        
+        updated_caption = (
+            "🔄 درخواست بازیابی حساب کاربری از طریق سروش پلاس 📱:\n\n"
+            f"🔤 نام کاربری: {username}\n"
+            f"📱 شماره تلفن: {phone if phone else 'ثبت‌نشده'}\n"
+            f"💬 شناسه سروش: {target_chat_id}\n\n"
+            "وضعیت: تایید شد و اطلاعات جدید حساب در سروش به متقاضی تحویل داده شد ✅"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        splus_send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
+        splus_send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+        splus_send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+        splus_send_message(target_chat_id, f"رمز عبور جدید شما:\n{password_30}")
+        
+        tt_bytes = generate_tt_file_bytes(username, password_30, persian_name if persian_name else username)
+        filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+        splus_send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        return
+
+    # رد درخواست بازیابی سروش پلاس توسط مدیر
+    if data.startswith("rej_rec_sp_"):
+        target_chat_id = int(data.split("_")[-1])
+        set_splus_user(target_chat_id, step="REJECTED")
+        
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": "🔄 درخواست بازیابی حساب کاربری سروش:\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        rejection_msg = (
+            "درود و احترام؛\n\n"
+            "ضمن قدردانی از همراهی شما، به اطلاع می‌رسانیم که پس از بررسی تیم مدیریت کافه دوستی، متاسفانه درخواست بازیابی حساب کاربری شما تایید نشد.\n\n"
+            "با آرزوی موفقیت و بهروزی برای شما. 🌸"
+        )
+        splus_send_message(target_chat_id, rejection_msg)
+        return
+
+    # دکمه‌های تحویل اکانت به کاربر تلگرام
     if data.startswith("get_tt_") or data.startswith("get_txt_") or data.startswith("get_both_"):
-        # حذف دکمه‌های انتخاب پس از کلیک برای تمیز ماندن چت کاربر
         tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -1425,10 +1736,445 @@ def handle_callback_query(cq):
             filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
             send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
         
-        # ارسال متن کامل قوانین سرور به محض دریافت یوزر
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         send_message(target_chat_id, rules_header + RULES_TEXT)
         return
+
+# ==============================================================================
+# ========================= بخش ۲: پیام‌ها و دکمه‌های سروش پلاس =========================
+# ==============================================================================
+
+def send_splus_main_menu(chat_id):
+    user_info = get_splus_user(chat_id)
+    if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"sp_resend_{chat_id}"}],
+                [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "sp_start_recover"}],
+                [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "sp_dl_menu"}]
+            ]
+        }
+        welcome_text = (
+            "سلام و درود به شما رفیق باصفا ☕️✨\n\n"
+            "شما قبلاً حساب کاربری اختصاصی خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
+            f"نام کاربری شما: {user_info['username']}\n\n"
+            "اگر مشخصات ورود، رمز عبور یا فایل اتصال را فراموش کرده‌اید، می‌توانید از طریق دکمه‌های زیر آن را دریافت نمایید."
+        )
+        splus_send_message(chat_id, welcome_text, keyboard)
+        return
+
+    set_splus_user(chat_id, step="IDLE")
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "sp_start_register"}],
+            [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "sp_start_recover"}],
+            [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "sp_dl_menu"}]
+        ]
+    }
+    welcome_text = (
+        "هر جا که کلمات از سر مهر جاری شوند و دل‌ها بی‌نقاب کنار هم بنشینند، همان‌جا زندگی واقعی جریان دارد.\n\n"
+        "به کافه دوستی خوش آمدید؛ سرپناهی از جنس صدا، ترانه و هم‌نشینی، برای کسانی که ارزش یک گفت‌وگوی زلال و از ته‌دل را می‌دانند. حضور شما در این فضا برای ما اتفاقی ارزشمند است و مشتاق شنیدن صدایتان در این جمع هستیم.\n\n"
+        "برای دریافت کلید ورود به سرور یا بازیابی حساب، از دکمه‌های زیر استفاده کنید."
+    )
+    splus_send_message(chat_id, welcome_text, keyboard)
+
+def handle_splus_message(msg):
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "").strip()
+    voice = msg.get("voice") or msg.get("audio")
+    user = get_splus_user(chat_id)
+    
+    # دستور دریافت لینک مستقیم دانلود
+    if text.lower() in ["/download", "دانلود", "دانلود تیمتاک", "دانلود تیم‌تاک", "تیمتاک", "download"]:
+        dl_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود نسخه ویندوز (Windows) 💻", "callback_data": "sp_dl_win"}],
+                [{"text": "دانلود نسخه اندروید (Android) 📱", "callback_data": "sp_dl_android"}],
+                [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "sp_back_to_main"}]
+            ]
+        }
+        dl_text = (
+            "📥 دریافت آخرین نسخه رسمی نرم‌افزار تیم‌تاک:\n\n"
+            "لطفاً سیستم‌عامل دستگاه خود را انتخاب کنید تا لینک مستقیم از سایت رسمی تیم‌تاک (BearWare) برای شما ارسال شود:"
+        )
+        splus_send_message(chat_id, dl_text, dl_keyboard)
+        return
+
+    # دستور شروع فرآیند بازیابی حساب
+    if text.lower() in ["/recover", "بازیابی", "بازیابی حساب", "بازیابی اکانت", "recover"]:
+        set_splus_user(chat_id, step="RECOVER_WAIT_INPUT")
+        recovery_text = (
+            "🔄 بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "مرحله اول:\n"
+            "لطفاً نام کاربری (یوزرنیم) یا شماره موبایلی که قبلاً با آن در سرور حساب داشته‌اید را ارسال کنید:"
+        )
+        cancel_keyboard = {
+            "inline_keyboard": [
+                [{"text": "انصراف و بازگشت به منوی اصلی 🔙", "callback_data": "sp_back_to_main"}]
+            ]
+        }
+        splus_send_message(chat_id, recovery_text, cancel_keyboard)
+        return
+        
+    if text == "/start" or text == "شروع":
+        send_splus_main_menu(chat_id)
+        return
+        
+    if not user:
+        set_splus_user(chat_id, step="IDLE")
+        send_splus_main_menu(chat_id)
+        return
+        
+    step = user["step"]
+
+    # مرحله اول بازیابی در سروش: دریافت یوزرنیم یا شماره موبایل
+    if step == "RECOVER_WAIT_INPUT":
+        if text in ["/start", "انصراف", "بازگشت", "منو"]:
+            set_splus_user(chat_id, step="IDLE")
+            splus_send_message(chat_id, "فرآیند بازیابی حساب لغو شد.")
+            send_splus_main_menu(chat_id)
+            return
+            
+        acc = find_existing_account(text)
+        if not acc or not acc.get("username"):
+            not_found_kb = {
+                "inline_keyboard": [
+                    [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "sp_back_to_main"}]
+                ]
+            }
+            splus_send_message(
+                chat_id,
+                "⚠️ حسابی با این نام کاربری یا شماره موبایل در سرور کافه دوستی یافت نشد.\n\n"
+                "لطفاً در نوشتن مشخصات دقت فرمایید و مجدداً ارسال کنید، یا برای ثبت‌نام حساب جدید از دکمه زیر به منوی اصلی بازگردید:",
+                not_found_kb
+            )
+            return
+
+        target_uname = acc["username"]
+        target_phone = acc.get("phone", "")
+        target_pname = acc.get("persian_name", "")
+        
+        set_splus_user(chat_id, 
+                       step="RECOVER_WAIT_VOICE", 
+                       username=target_uname, 
+                       phone=target_phone if target_phone else "",
+                       persian_name=target_pname if target_pname else "")
+        
+        step2_text = (
+            f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.\n\n"
+            "مرحله دوم (ارسال ویس درخواست بازیابی):\n"
+            "لطفاً یک پیام صوتی (ویس) درون سروش ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "۱. خودتان را کامل معرفی کنید (نام و نام خانوادگی، شهر و سن)\n"
+            f"۲. صراحتاً اعلام کنید که درخواست بازیابی حساب کاربری «{target_uname}» را دارید.\n\n"
+            "منتظر ارسال ویس شما هستیم..."
+        )
+        splus_send_message(chat_id, step2_text)
+        return
+
+    # مرحله دوم بازیابی در سروش: دریافت ویس و ارسال به تلگرام ادمین
+    if step == "RECOVER_WAIT_VOICE":
+        if not voice:
+            splus_send_message(chat_id, "لطفاً درخواست بازیابی خود را به صورت پیام صوتی (ویس) در سروش ارسال فرمایید:")
+            return
+            
+        voice_file_id = voice["file_id"]
+        set_splus_user(chat_id, step="RECOVER_WAIT_ADMIN", voice_file_id=voice_file_id)
+        
+        splus_send_message(
+            chat_id,
+            "درخواست بازیابی حساب شما به همراه ویس برای مدیریت سرور کافه دوستی ارسال شد ⏳\n\n"
+            "پس از بررسی و تایید توسط مدیریت، اطلاعات ورود جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد."
+        )
+        
+        target_uname = user.get("username", "نامشخص")
+        target_phone = user.get("phone", "ثبت‌نشده")
+        target_pname = user.get("persian_name", "نامشخص")
+        
+        admin_caption = (
+            "🔄 درخواست بازیابی حساب کاربری از طریق سروش پلاس 📱:\n\n"
+            f"🔤 نام کاربری: {target_uname}\n"
+            f"📱 شماره تلفن: {target_phone if target_phone else 'ثبت‌نشده'}\n"
+            f"👤 نام فارسی: {target_pname if target_pname else 'نامشخص'}\n"
+            f"💬 شناسه سروش متقاضی: {chat_id}\n\n"
+            "لطفاً ویس ارسالی را گوش دهید و تصمیم‌گیری فرمایید:"
+        )
+        admin_keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "تایید بازیابی در سروش ✅", "callback_data": f"app_rec_sp_{chat_id}"},
+                    {"text": "رد درخواست بازیابی سروش ❌", "callback_data": f"rej_rec_sp_{chat_id}"}
+                ]
+            ]
+        }
+        
+        voice_bytes = splus_download_file_bytes(voice_file_id)
+        if voice_bytes:
+            send_voice_file(ADMIN_CHAT_ID, f"splus_rec_{chat_id}.ogg", voice_bytes, caption=admin_caption, reply_markup=admin_keyboard)
+        else:
+            send_message(ADMIN_CHAT_ID, admin_caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
+        return
+
+    # ثبت نام در سروش: دریافت نام فارسی
+    if step == "WAIT_NAME":
+        if not text:
+            splus_send_message(chat_id, "لطفا نام و نام خانوادگی خود را به صورت متنی و فارسی ارسال کنید:")
+            return
+        persian_name = text
+        username = persian_to_english(persian_name)
+        
+        u_set, p_set = get_tt_existing_cached()
+        if username in u_set:
+            splus_send_message(
+                chat_id,
+                f"⚠️ کاربری با نام کاربری «{username}» از قبل در سرور کافه دوستی ثبت شده و دارای حساب است.\n\n"
+                "اگر این حساب متعلق به خود شماست یا رمز را فراموش کرده‌اید، با پشتیبانی در ارتباط باشید:\n"
+                "کانال پشتیبانی: @Kafeh_doosti\n\n"
+                "در غیر این صورت، لطفاً نام خود را به همراه پسوند یا به صورت کامل‌تر بنویسید و ارسال کنید:"
+            )
+            
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور از طریق سروش!\n"
+                f"👤 نام فارسی واردشده: {persian_name}\n"
+                f"🔤 نام کاربری معادل: {username}\n"
+                f"💬 شناسه سروش: {chat_id}\n\n"
+                "وضعیت: از ایجاد یوزر تکراری جلوگیری شد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
+            return
+
+        set_splus_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
+        msg_text = (
+            f"نام فارسی شما: {persian_name}\n"
+            f"نام کاربری انگلیسی پیشنهادی شما: {username}\n\n"
+            "حالا لطفا شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:"
+        )
+        splus_send_message(chat_id, msg_text)
+        return
+        
+    # ثبت نام در سروش: دریافت شماره موبایل
+    if step == "WAIT_PHONE":
+        clean_phone = text.replace("+98", "0").replace("0098", "0").replace(" ", "").replace("-", "")
+        fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+        clean_phone = clean_phone.translate(fa_to_en)
+        if clean_phone.startswith("98"):
+            clean_phone = "0" + clean_phone[2:]
+        elif clean_phone.startswith("9") and len(clean_phone) == 10:
+            clean_phone = "0" + clean_phone
+        
+        if not (clean_phone.startswith("09") and len(clean_phone) == 11 and clean_phone.isdigit()):
+            splus_send_message(chat_id, "شماره موبایل وارد شده صحیح نیست. لطفا یک شماره معتبر ۱۱ رقمی مانند ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید:")
+            return
+        
+        u_set, p_set = get_tt_existing_cached()
+        db_user = get_user_by_phone(clean_phone)
+        sp_user = get_splus_user_by_phone(clean_phone)
+        
+        if clean_phone in p_set or (db_user and db_user.get("step") == "COMPLETED") or (sp_user and sp_user.get("step") == "COMPLETED" and sp_user.get("chat_id") != chat_id):
+            splus_send_message(
+                chat_id,
+                "⚠️ این شماره موبایل قبلاً در سرور کافه دوستی ثبت شده و دارای حساب کاربری فعال می‌باشد.\n\n"
+                "طبق قوانین سرور، هر کاربر تنها مجاز به داشتن یک حساب کاربری است و امکان دریافت حساب مجدد یا تکراری وجود ندارد.\n\n"
+                "در صورت نیاز به راهنمایی یا بازیابی حساب، با پشتیبانی در ارتباط باشید."
+            )
+            
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ تلاش برای ثبت‌نام با شماره تکراری از طریق سروش!\n"
+                f"📱 شماره تلفن واردشده: {clean_phone}\n"
+                f"👤 نام فارسی متقاضی: {user.get('persian_name', 'نامشخص')}\n"
+                f"💬 شناسه سروش: {chat_id}\n\n"
+                "وضعیت: این شماره از قبل دارای اکانت است و درخواست مسدود شد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
+            return
+        
+        set_splus_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
+        voice_prompt = (
+            f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅\n\n"
+            "مرحله پایانی (ویس معرفی):\n"
+            "لطفا یک پیام صوتی (ویس) درون سروش ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "۱. نام و نام خانوادگی\n"
+            "۲. محل سکونت (شهر یا استان)\n"
+            "۳. سن\n"
+            "۴. وضعیت تاهل\n\n"
+            "منتظر ارسال ویس شما هستیم..."
+        )
+        splus_send_message(chat_id, voice_prompt)
+        return
+
+    # ثبت نام در سروش: دریافت ویس و ارسال به تلگرام ادمین
+    if step == "WAIT_VOICE":
+        if not voice:
+            splus_send_message(chat_id, "لطفا فقط پیام صوتی (ویس) ارسال بفرمایید:")
+            return
+        
+        voice_file_id = voice["file_id"]
+        set_splus_user(chat_id, step="PENDING_ADMIN", voice_file_id=voice_file_id)
+        
+        splus_send_message(
+            chat_id,
+            "ویس و پرونده معرفی شما با موفقیت دریافت شد ✅\n"
+            "اطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید توسط مدیریت، نتیجه در همین‌جا به شما اعلام خواهد شد."
+        )
+        
+        user_info = get_splus_user(chat_id)
+        caption = (
+            "🔔 درخواست عضویت و حساب جدید از طریق سروش پلاس 📱:\n\n"
+            f"👤 نام فارسی: {user_info['persian_name']}\n"
+            f"🔤 نام کاربری انگلیسی پیشنهادی: {user_info['username']}\n"
+            f"📱 شماره موبایل: {user_info['phone']}\n"
+            f"💬 شناسه سروش متقاضی: {chat_id}\n\n"
+            "لطفا ویس بالا را گوش دهید و تصمیم‌گیری کنید:"
+        )
+        
+        admin_keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "تایید و ساخت یوزر در سروش ✅", "callback_data": f"app_sp_{chat_id}"},
+                    {"text": "رد درخواست سروش ❌", "callback_data": f"rej_sp_{chat_id}"}
+                ]
+            ]
+        }
+        
+        voice_bytes = splus_download_file_bytes(voice_file_id)
+        if voice_bytes:
+            send_voice_file(ADMIN_CHAT_ID, f"splus_new_{chat_id}.ogg", voice_bytes, caption=caption, reply_markup=admin_keyboard)
+        else:
+            send_message(ADMIN_CHAT_ID, caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
+        return
+
+def handle_splus_callback_query(cq):
+    cq_id = cq["id"]
+    from_user = cq["from"]["id"]
+    data = cq.get("data", "")
+    
+    splus_request("answerCallbackQuery", {"callback_query_id": cq_id})
+    
+    if data == "sp_dl_menu":
+        dl_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود نسخه ویندوز (Windows) 💻", "callback_data": "sp_dl_win"}],
+                [{"text": "دانلود نسخه اندروید (Android) 📱", "callback_data": "sp_dl_android"}],
+                [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "sp_back_to_main"}]
+            ]
+        }
+        dl_text = (
+            "📥 دریافت آخرین نسخه رسمی نرم‌افزار تیم‌تاک:\n\n"
+            "لطفاً سیستم‌عامل دستگاه خود را انتخاب کنید تا لینک مستقیم از سایت رسمی تیم‌تاک (BearWare) برای شما ارسال شود:"
+        )
+        splus_send_message(from_user, dl_text, dl_keyboard)
+        return
+
+    if data == "sp_dl_win":
+        win_link = get_latest_teamtalk_win_link()
+        win_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود مستقیم نسخه ویندوز 📥", "url": win_link}],
+                [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "sp_dl_menu"}]
+            ]
+        }
+        msg_str = (
+            "💻 دانلود آخرین نسخه رسمی تیم‌تاک برای ویندوز (Windows):\n\n"
+            "لینک دانلود مستقیم و رسمی از سرور اصلی تیم‌تاک (BearWare):\n"
+            f"{win_link}\n\n"
+            "پس از دانلود، فایل نصبی را اجرا کرده و مراحل نصب را انجام دهید."
+        )
+        splus_send_message(from_user, msg_str, win_keyboard)
+        return
+
+    if data == "sp_dl_android":
+        android_play_link = "https://play.google.com/store/apps/details?id=dk.bearware.gui"
+        android_apk_link = "https://d.apkpure.com/b/APK/dk.bearware.gui?version=latest"
+        android_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود از گوگل‌پلی (سایت رسمی تیم‌تاک) 🌐", "url": android_play_link}],
+                [{"text": "دانلود مستقیم فایل نصبی (APK) 📥", "url": android_apk_link}],
+                [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "sp_dl_menu"}]
+            ]
+        }
+        msg_str = (
+            "📱 دانلود آخرین نسخه رسمی تیم‌تاک برای اندروید (Android):\n\n"
+            "۱. لینک رسمی تیم‌تاک در فروشگاه گوگل‌پلی (سایت اصلی تیم‌تاک):\n"
+            f"{android_play_link}\n\n"
+            "۲. لینک دانلود مستقیم فایل نصبی (APK) در صورت عدم دسترسی به گوگل‌پلی:\n"
+            f"{android_apk_link}\n\n"
+            "با لمس هر یک از دکمه‌های زیر، برنامه به طور مستقیم دانلود خواهد شد."
+        )
+        splus_send_message(from_user, msg_str, android_keyboard)
+        return
+
+    if data == "sp_back_to_main":
+        send_splus_main_menu(from_user)
+        return
+
+    if data == "sp_start_recover":
+        set_splus_user(from_user, step="RECOVER_WAIT_INPUT")
+        recovery_text = (
+            "🔄 بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "مرحله اول:\n"
+            "لطفاً نام کاربری (یوزرنیم) یا شماره موبایلی که قبلاً با آن در سرور حساب داشته‌اید را ارسال کنید:"
+        )
+        cancel_keyboard = {
+            "inline_keyboard": [
+                [{"text": "انصراف و بازگشت به منوی اصلی 🔙", "callback_data": "sp_back_to_main"}]
+            ]
+        }
+        splus_send_message(from_user, recovery_text, cancel_keyboard)
+        return
+
+    if data in ["sp_start_register", "sp_check_join"]:
+        user_info = get_splus_user(from_user)
+        if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
+            splus_send_message(
+                from_user,
+                "⚠️ شما قبلاً حساب کاربری خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
+                f"نام کاربری شما: {user_info['username']}\n\n"
+                "در صورت نیاز به بازیابی اطلاعات ورود یا هرگونه سوال، از منوی بازیابی استفاده کنید."
+            )
+            return
+
+        # بررسی عضویت اجباری در کانال سروش کافه دوستی
+        if not is_splus_channel_member(from_user):
+            join_keyboard = {
+                "inline_keyboard": [
+                    [{"text": "عضویت در کانال سروش کافه دوستی 📢", "url": SPLUS_CHANNEL_LINK}],
+                    [{"text": "عضو شدم / بررسی عضویت 🔄", "callback_data": "sp_check_join"}]
+                ]
+            }
+            splus_send_message(
+                from_user,
+                "⚠️ طبق قوانین کافه دوستی، برای ثبت‌نام و دریافت حساب کاربری، ابتدا باید عضو کانال سروش کافه دوستی شوید.\n\n"
+                f"لینک کانال: {SPLUS_CHANNEL_LINK}\n\n"
+                "لطفا از طریق دکمه زیر در کانال عضو شوید و سپس دکمه «عضو شدم / بررسی عضویت» را بزنید:",
+                join_keyboard
+            )
+            return
+        
+        set_splus_user(from_user, step="WAIT_NAME")
+        splus_send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅\n\nلطفا نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
+        return
+
+    # ارسال مجدد مشخصات به کاربر سروش
+    if data.startswith("sp_resend_"):
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        if user_info and user_info.get("password"):
+            username = user_info["username"]
+            password = user_info["password"]
+            persian_name = user_info["persian_name"]
+            
+            splus_send_message(target_chat_id, f"مشخصات اتصال به سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+            splus_send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+            splus_send_message(target_chat_id, f"رمز عبور شما:\n{password}")
+            
+            tt_bytes = generate_tt_file_bytes(username, password, persian_name)
+            filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+            splus_send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی.")
+            
+            rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+            splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+            return
 
 # ----------------- سرور سلامت برای رندر (Health Check) -----------------
 import http.server
@@ -1439,8 +2185,7 @@ def run_health_server():
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/test_splus":
-                token = "70705855:MthyAyaCzFaoIqe6_qBvCzaMcfbWrlptaLU"
-                url = f"https://api.splus.ir/bot{token}/getMe"
+                url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/getMe"
                 try:
                     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -1458,7 +2203,7 @@ def run_health_server():
             self.send_response(200)
             self.send_header("Content-type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write("ربات کافه دوستی به صورت ۲۴ ساعته در حال کار است.".encode('utf-8'))
+            self.wfile.write("ربات کافه دوستی به صورت ۲۴ ساعته در تلگرام و سروش فعال است.".encode('utf-8'))
         def log_message(self, format, *args):
             pass
     try:
@@ -1487,9 +2232,33 @@ threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
 
-# ----------------- حلقه اصلی دریافت پیام‌ها -----------------
+# ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
+def run_soroush_bot():
+    print("ربات سروش پلاس کافه دوستی فعال شد و آماده دریافت پیام است...", flush=True)
+    offset = None
+    while True:
+        try:
+            url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/getUpdates?timeout=30"
+            if offset:
+                url += f"&offset={offset}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if data.get("ok"):
+                    for item in data.get("result", []):
+                        offset = item["update_id"] + 1
+                        if "message" in item:
+                            handle_splus_message(item["message"])
+                        elif "callback_query" in item:
+                            handle_splus_callback_query(item["callback_query"])
+        except Exception as e:
+            time.sleep(3)
+
+threading.Thread(target=run_soroush_bot, daemon=True).start()
+
+# ----------------- حلقه اصلی دریافت پیام‌های تلگرام -----------------
 def run_bot():
-    print("ربات نسخه ۲ با موفقیت فعال شد و آماده دریافت پیام است...", flush=True)
+    print("ربات تلگرام کافه دوستی فعال شد و آماده دریافت پیام است...", flush=True)
     offset = None
     while True:
         try:
@@ -1497,7 +2266,7 @@ def run_bot():
             if offset:
                 url += f"&offset={offset}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=40) as resp:
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 if data.get("ok"):
                     for item in data.get("result", []):
