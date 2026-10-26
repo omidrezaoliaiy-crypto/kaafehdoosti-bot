@@ -144,6 +144,96 @@ def set_user(chat_id, **kwargs):
     conn.commit()
     conn.close()
 
+def get_user_by_phone(phone):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT chat_id, step, persian_name, username, password FROM users WHERE phone=?", (phone,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "chat_id": row[0],
+            "step": row[1],
+            "persian_name": row[2],
+            "username": row[3],
+            "password": row[4]
+        }
+    return None
+
+# ----------------- کش و بررسی حساب‌های موجود در تیم‌تاک (ضد تکرار) -----------------
+TT_CACHE = {"time": 0, "usernames": set(), "phones": set()}
+
+def extract_iranian_phone(text):
+    if not text:
+        return None
+    fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+    clean = text.translate(fa_to_en).replace("+98", "0").replace(" ", "").replace("-", "")
+    matches = re.findall(r'09\d{9}', clean)
+    if matches:
+        return matches[0]
+    matches9 = re.findall(r'(?<!\d)9\d{9}(?!\d)', clean)
+    if matches9:
+        return "0" + matches9[0]
+    return None
+
+def get_tt_existing_cached():
+    global TT_CACHE
+    if time.time() - TT_CACHE["time"] < 180 and TT_CACHE["usernames"]:
+        return TT_CACHE["usernames"], TT_CACHE["phones"]
+    
+    usernames = set()
+    phones = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(4)
+        s.connect((TT_HOST, TT_PORT))
+        s.recv(4096)
+        cmd = 'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n'
+        s.sendall(cmd.encode('utf-8'))
+        
+        time.sleep(1.5)
+        while True:
+            try:
+                data = s.recv(8192)
+                if not data:
+                    break
+            except socket.timeout:
+                break
+                
+        s.sendall(b'listaccounts\r\n')
+        time.sleep(1)
+        resp_list = b""
+        while True:
+            try:
+                chunk = s.recv(8192)
+                if not chunk:
+                    break
+                resp_list += chunk
+            except socket.timeout:
+                break
+        s.close()
+        
+        text = resp_list.decode('utf-8', errors='ignore')
+        for line in text.splitlines():
+            if "useraccount" in line:
+                u_m = re.search(r'username="([^"]+)"', line)
+                n_m = re.search(r'note="([^"]*)"', line)
+                if u_m:
+                    u = u_m.group(1).strip().lower()
+                    usernames.add(u)
+                    if n_m:
+                        p = extract_iranian_phone(n_m.group(1))
+                        if p:
+                            phones.add(p)
+                            
+        TT_CACHE["time"] = time.time()
+        TT_CACHE["usernames"] = usernames
+        TT_CACHE["phones"] = phones
+    except Exception as e:
+        print(f"Error fetching TT accounts: {e}", flush=True)
+        
+    return TT_CACHE["usernames"], TT_CACHE["phones"]
+
 # ----------------- تبدیل نام فارسی به فینگلیش -----------------
 PERSIAN_TO_EN = {
     'آ': 'a', 'ا': 'a', 'ب': 'b', 'پ': 'p', 'ت': 't', 'ث': 's',
@@ -322,6 +412,12 @@ def create_teamtalk_account(username, password, phone):
         s.sendall(b'saveconfig\r\n')
         time.sleep(0.5)
         s.close()
+        
+        # به‌روزرسانی کش حساب‌ها
+        TT_CACHE["usernames"].add(username.lower())
+        if phone:
+            TT_CACHE["phones"].add(phone)
+            
         return True, "حساب کاربری با موفقیت در تیم‌تاک ساخته شد."
     except Exception as e:
         return False, str(e)
@@ -357,6 +453,22 @@ def handle_message(msg):
     user = get_user(chat_id)
     
     if text == "/start":
+        user_info = get_user(chat_id)
+        if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{chat_id}"}]
+                ]
+            }
+            welcome_text = (
+                "سلام و درود به شما رفیق باصفا ☕️✨\n\n"
+                "شما قبلاً حساب کاربری اختصاصی خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
+                f"نام کاربری شما: {user_info['username']}\n\n"
+                "اگر مشخصات ورود، رمز عبور یا فایل اتصال را فراموش کرده‌اید، می‌توانید از طریق دکمه زیر مجدداً آن را دریافت نمایید."
+            )
+            send_message(chat_id, welcome_text, keyboard)
+            return
+
         set_user(chat_id, step="IDLE")
         keyboard = {
             "inline_keyboard": [
@@ -383,6 +495,19 @@ def handle_message(msg):
             return
         persian_name = text
         username = persian_to_english(persian_name)
+        
+        # بررسی تکراری نبودن نام کاربری در سرور تیم‌تاک
+        u_set, p_set = get_tt_existing_cached()
+        if username in u_set:
+            send_message(
+                chat_id,
+                f"⚠️ کاربری با نام کاربری «{username}» از قبل در سرور کافه دوستی ثبت شده و دارای حساب است.\n\n"
+                "اگر این حساب متعلق به خود شماست یا رمز را فراموش کرده‌اید، با پشتیبانی در ارتباط باشید:\n"
+                "@pkaafehdoosti\n\n"
+                "در غیر این صورت، لطفاً نام خود را به همراه پسوند یا به صورت کامل‌تر بنویسید و ارسال کنید:"
+            )
+            return
+
         set_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
         msg_text = (
             f"نام فارسی شما: {persian_name}\n"
@@ -403,6 +528,20 @@ def handle_message(msg):
         
         if not (clean_phone.startswith("09") and len(clean_phone) == 11 and clean_phone.isdigit()):
             send_message(chat_id, "شماره موبایل وارد شده صحیح نیست. لطفا یک شماره معتبر ۱۱ رقمی مانند ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید:")
+            return
+        
+        # بررسی عدم تکراری بودن شماره تلفن (در سرور تیم‌تاک و دیتابیس ربات)
+        u_set, p_set = get_tt_existing_cached()
+        db_user = get_user_by_phone(clean_phone)
+        
+        if clean_phone in p_set or (db_user and db_user.get("step") == "COMPLETED" and db_user.get("chat_id") != chat_id):
+            send_message(
+                chat_id,
+                "⚠️ این شماره موبایل قبلاً در سرور کافه دوستی ثبت شده و دارای حساب کاربری فعال می‌باشد.\n\n"
+                "طبق قوانین سرور، هر کاربر تنها مجاز به داشتن یک حساب کاربری است و امکان دریافت حساب مجدد یا تکراری وجود ندارد.\n\n"
+                "در صورت نیاز به راهنمایی یا بازیابی حساب، با پشتیبانی در ارتباط باشید:\n"
+                "@pkaafehdoosti"
+            )
             return
         
         set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
@@ -480,6 +619,23 @@ def handle_callback_query(cq):
     tg_request("answerCallbackQuery", {"callback_query_id": cq_id})
     
     if data in ["start_register", "check_join"]:
+        user_info = get_user(from_user)
+        if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
+            resend_keyboard = {
+                "inline_keyboard": [
+                    [{"text": "دریافت مجدد مشخصات حساب 📝", "callback_data": f"resend_{from_user}"}]
+                ]
+            }
+            send_message(
+                from_user,
+                "⚠️ شما قبلاً حساب کاربری خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
+                f"نام کاربری شما: {user_info['username']}\n\n"
+                "در صورت نیاز به بازیابی اطلاعات ورود یا هرگونه سوال، با پشتیبانی در ارتباط باشید:\n"
+                "@pkaafehdoosti",
+                resend_keyboard
+            )
+            return
+
         # بررسی عضویت اجباری در کانال
         if not is_channel_member(from_user):
             join_keyboard = {
@@ -500,6 +656,21 @@ def handle_callback_query(cq):
         set_user(from_user, step="WAIT_NAME")
         send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅\n\nلطفا نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
         return
+
+    # ارسال مجدد مشخصات به کاربر قدیمی
+    if data.startswith("resend_"):
+        target_chat_id = int(data.split("_")[1])
+        user_info = get_user(target_chat_id)
+        if user_info and user_info.get("password"):
+            delivery_keyboard = {
+                "inline_keyboard": [
+                    [{"text": "دریافت فایل آماده ورود (فایل TT) 📁", "callback_data": f"get_tt_{target_chat_id}"}],
+                    [{"text": "دریافت مشخصات به صورت متن 📝", "callback_data": f"get_txt_{target_chat_id}"}],
+                    [{"text": "دریافت هر دو حالت (متن و فایل) ✨", "callback_data": f"get_both_{target_chat_id}"}]
+                ]
+            }
+            send_message(target_chat_id, "اطلاعات ورود خود را چگونه مایلید دریافت کنید؟", delivery_keyboard)
+            return
     
     # دستورات مخصوص مدیر
     if data.startswith("approve_"):
@@ -675,6 +846,7 @@ def keep_alive_worker():
         time.sleep(600)  # هر ۱۰ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
 
 threading.Thread(target=keep_alive_worker, daemon=True).start()
+threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 
 # ----------------- حلقه اصلی دریافت پیام‌ها -----------------
 def run_bot():
