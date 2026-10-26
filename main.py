@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import json
+import re
 import socket
 import secrets
 import string
@@ -33,6 +34,11 @@ TT_PORT = 10333
 TT_ADMIN_USER = "kaafehdoostibot"
 TT_ADMIN_PASS = "asdfghjkl1234lkjhgfdsa4321qwwq"
 TT_NICKNAME = "ربات یوزر دهی"
+
+# تنظیمات ربات ناظر سرور (حضور دائم و بدون قطعی در سرور)
+TT_NAZER_USER = "kaafeh_nazer"
+TT_NAZER_PASS = "SecureNazerPass998877"
+TT_NAZER_NICKNAME = "ربات ناظر"
 
 # دسترسی‌های کاربر تیم‌تاک:
 # بدون ورود هم‌زمان (Multi-login) و بدون ساخت کانال موقت (Temporary channel)
@@ -193,10 +199,10 @@ def get_tt_existing_cached():
     phones = set()
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(4)
+        s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = 'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         
         time.sleep(1.5)
@@ -245,7 +251,7 @@ def get_tt_existing_cached():
     return TT_CACHE["usernames"], TT_CACHE["phones"]
 
 # ----------------- رصد فعالیت، لاگین و حذف خودکار یوزرهای ۲ ماه غایب -----------------
-PROTECTED_USERS = {"admin", "kaafehdoostibot", "music player", "hivaplayer", "audio player", "omid.o", "yalda"}
+PROTECTED_USERS = {"admin", "kaafehdoostibot", "kaafeh_nazer", "music player", "hivaplayer", "audio player", "omid.o", "yalda"}
 
 def update_tt_last_seen(username, note=None):
     if not username:
@@ -277,7 +283,7 @@ def delete_tt_account_server(username):
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = 'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
@@ -335,6 +341,66 @@ def run_inactivity_checker():
         except Exception:
             pass
         time.sleep(86400) # هر ۲۴ ساعت یک بار بررسی می‌کند
+
+def monitor_teamtalk_activity():
+    """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران"""
+    time.sleep(5)
+    print("شروع به کار ربات ناظر کافه دوستی...", flush=True)
+    while True:
+        s = None
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(15)
+            s.connect((TT_HOST, TT_PORT))
+            s.recv(4096)
+            login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
+            s.sendall(login_cmd.encode('utf-8'))
+            
+            last_ping = time.time()
+            buffer = ""
+            
+            while True:
+                now = time.time()
+                if now - last_ping >= 20:
+                    try:
+                        s.sendall(b'ping\r\n')
+                        last_ping = now
+                    except Exception:
+                        break
+                
+                try:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        print("اتصال ربات ناظر قطع شد؛ تلاش مجدد...", flush=True)
+                        break
+                    buffer += chunk.decode('utf-8', errors='ignore')
+                    while '\r\n' in buffer:
+                        line, buffer = buffer.split('\r\n', 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("ping"):
+                            try:
+                                s.sendall(b'pong\r\n')
+                                last_ping = time.time()
+                            except Exception:
+                                pass
+                        elif "loggedin" in line or "adduser" in line or "updateuser" in line:
+                            u_m = re.search(r'username="([^"]+)"', line)
+                            if u_m:
+                                u_name = u_m.group(1).strip().lower()
+                                update_tt_last_seen(u_name)
+                except socket.timeout:
+                    continue
+        except Exception as e:
+            print(f"خطا در ربات ناظر: {e}. اتصال مجدد ۵ ثانیه دیگر...", flush=True)
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        time.sleep(5)
 
 # ----------------- تبدیل نام فارسی به فینگلیش -----------------
 PERSIAN_TO_EN = {
@@ -996,6 +1062,7 @@ def keep_alive_worker():
 threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
+threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
 
 # ----------------- حلقه اصلی دریافت پیام‌ها -----------------
 def run_bot():
