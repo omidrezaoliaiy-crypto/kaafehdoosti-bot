@@ -452,6 +452,29 @@ def persian_to_english(text):
         username = first_name
     return username.strip().lower()
 
+# ----------------- سیستم دریافت مستقیم آخرین نسخه تیم‌تاک از سایت رسمی -----------------
+TEAMTALK_CACHE = {
+    "win_link": "https://bearware.dk/teamtalk/v5.23/TeamTalk_v5.23_Setup.exe",
+    "time": 0
+}
+
+def get_latest_teamtalk_win_link():
+    global TEAMTALK_CACHE
+    if time.time() - TEAMTALK_CACHE["time"] < 3600 and TEAMTALK_CACHE["win_link"]:
+        return TEAMTALK_CACHE["win_link"]
+    try:
+        url = "https://bearware.dk/?page_id=353"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+            matches = re.findall(r'https?://bearware\.dk/teamtalk/[a-zA-Z0-9\._/]+Setup\.exe', html, re.I)
+            if matches:
+                TEAMTALK_CACHE["win_link"] = matches[0]
+                TEAMTALK_CACHE["time"] = time.time()
+    except Exception as e:
+        print(f"Error fetching latest win link: {e}", flush=True)
+    return TEAMTALK_CACHE["win_link"]
+
 # ----------------- تلگرام ای‌پی‌آی -----------------
 def tg_request(method, data=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
@@ -620,12 +643,29 @@ def handle_message(msg):
     voice = msg.get("voice")
     user = get_user(chat_id)
     
+    # دستور دریافت مستقیم لینک دانلود تیم‌تاک
+    if text.lower() in ["/download", "دانلود", "دانلود تیمتاک", "دانلود تیم‌تاک", "تیمتاک", "download"]:
+        dl_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود نسخه ویندوز (Windows) 💻", "callback_data": "dl_win"}],
+                [{"text": "دانلود نسخه اندروید (Android) 📱", "callback_data": "dl_android"}],
+                [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "back_to_main"}]
+            ]
+        }
+        dl_text = (
+            "📥 دریافت آخرین نسخه رسمی نرم‌افزار تیم‌تاک:\n\n"
+            "لطفاً سیستم‌عامل دستگاه خود را انتخاب کنید تا لینک مستقیم از سایت رسمی تیم‌تاک (BearWare) برای شما ارسال شود:"
+        )
+        send_message(chat_id, dl_text, dl_keyboard)
+        return
+    
     if text == "/start":
         user_info = get_user(chat_id)
         if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{chat_id}"}]
+                    [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{chat_id}"}],
+                    [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
                 ]
             }
             welcome_text = (
@@ -652,7 +692,8 @@ def handle_message(msg):
         set_user(chat_id, step="IDLE")
         keyboard = {
             "inline_keyboard": [
-                [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "start_register"}]
+                [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "start_register"}],
+                [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
             ]
         }
         welcome_text = (
@@ -820,12 +861,97 @@ def handle_callback_query(cq):
     
     tg_request("answerCallbackQuery", {"callback_query_id": cq_id})
     
+    # منوی دانلود تیم‌تاک
+    if data == "dl_menu":
+        dl_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود نسخه ویندوز (Windows) 💻", "callback_data": "dl_win"}],
+                [{"text": "دانلود نسخه اندروید (Android) 📱", "callback_data": "dl_android"}],
+                [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "back_to_main"}]
+            ]
+        }
+        dl_text = (
+            "📥 دریافت آخرین نسخه رسمی نرم‌افزار تیم‌تاک:\n\n"
+            "لطفاً سیستم‌عامل دستگاه خود را انتخاب کنید تا لینک مستقیم از سایت رسمی تیم‌تاک (BearWare) برای شما ارسال شود:"
+        )
+        send_message(from_user, dl_text, dl_keyboard)
+        return
+
+    if data == "dl_win":
+        win_link = get_latest_teamtalk_win_link()
+        win_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود مستقیم نسخه ویندوز 📥", "url": win_link}],
+                [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "dl_menu"}]
+            ]
+        }
+        msg = (
+            "💻 دانلود آخرین نسخه رسمی تیم‌تاک برای ویندوز (Windows):\n\n"
+            "لینک دانلود مستقیم و رسمی از سرور اصلی تیم‌تاک (BearWare):\n"
+            f"{win_link}\n\n"
+            "پس از دانلود، فایل نصبی را اجرا کرده و مراحل نصب را انجام دهید."
+        )
+        send_message(from_user, msg, win_keyboard)
+        return
+
+    if data == "dl_android":
+        android_play_link = "https://play.google.com/store/apps/details?id=dk.bearware.gui"
+        android_apk_link = "https://d.apkpure.com/b/APK/dk.bearware.gui?version=latest"
+        android_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود از گوگل‌پلی (سایت رسمی تیم‌تاک) 🌐", "url": android_play_link}],
+                [{"text": "دانلود مستقیم فایل نصبی (APK) 📥", "url": android_apk_link}],
+                [{"text": "بازگشت به منوی دانلود 🔙", "callback_data": "dl_menu"}]
+            ]
+        }
+        msg = (
+            "📱 دانلود آخرین نسخه رسمی تیم‌تاک برای اندروید (Android):\n\n"
+            "۱. لینک رسمی تیم‌تاک در فروشگاه گوگل‌پلی (سایت اصلی تیم‌تاک):\n"
+            f"{android_play_link}\n\n"
+            "۲. لینک دانلود مستقیم فایل نصبی (APK) در صورت عدم دسترسی به گوگل‌پلی:\n"
+            f"{android_apk_link}\n\n"
+            "با لمس هر یک از دکمه‌های زیر، برنامه به طور مستقیم دانلود خواهد شد."
+        )
+        send_message(from_user, msg, android_keyboard)
+        return
+
+    if data == "back_to_main":
+        user_info = get_user(from_user)
+        if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{from_user}"}],
+                    [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
+                ]
+            }
+            welcome_text = (
+                "سلام و درود به شما رفیق باصفا ☕️✨\n\n"
+                f"نام کاربری شما در سرور کافه دوستی: {user_info['username']}\n\n"
+                "از طریق دکمه‌های زیر می‌توانید اطلاعات ورود یا نرم‌افزار را دریافت نمایید."
+            )
+            send_message(from_user, welcome_text, keyboard)
+            return
+        else:
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "start_register"}],
+                    [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
+                ]
+            }
+            welcome_text = (
+                "به کافه دوستی خوش آمدید ☕️✨\n\n"
+                "برای دریافت حساب کاربری یا دانلود برنامه از دکمه‌های زیر استفاده کنید:"
+            )
+            send_message(from_user, welcome_text, keyboard)
+            return
+
     if data in ["start_register", "check_join"]:
         user_info = get_user(from_user)
         if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
             resend_keyboard = {
                 "inline_keyboard": [
-                    [{"text": "دریافت مجدد مشخصات حساب 📝", "callback_data": f"resend_{from_user}"}]
+                    [{"text": "دریافت مجدد مشخصات حساب 📝", "callback_data": f"resend_{from_user}"}],
+                    [{"text": "دانلود نرم‌افزار تیم‌تاک 📥", "callback_data": "dl_menu"}]
                 ]
             }
             send_message(
@@ -1022,6 +1148,14 @@ def handle_callback_query(cq):
         # ارسال متن کامل قوانین سرور به محض دریافت یوزر
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         send_message(target_chat_id, rules_header + RULES_TEXT)
+        
+        # دکمه دانلود تیم‌تاک برای کاربر
+        dl_help_keyboard = {
+            "inline_keyboard": [
+                [{"text": "دانلود مستقیم برنامه تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
+            ]
+        }
+        send_message(target_chat_id, "اگر برنامه تیم‌تاک را روی دستگاه خود نصب ندارید، از طریق دکمه زیر می‌توانید نسخه رسمی را مستقیماً دانلود کنید:", dl_help_keyboard)
         return
 
 # ----------------- سرور سلامت برای رندر (Health Check) -----------------
