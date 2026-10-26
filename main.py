@@ -329,32 +329,52 @@ def cleanup_inactive_users():
 
 def monitor_teamtalk_activity():
     while True:
+        s = None
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(60)
+            s.settimeout(20)  # بررسی جریان هر ۲۰ ثانیه
             s.connect((TT_HOST, TT_PORT))
             s.recv(4096)
             cmd = 'login username="admin" password="1234yal1234da12344321" nickname="ربات ناظر" protocol="5.13" clientname="TeamTalk5"\r\n'
             s.sendall(cmd.encode('utf-8'))
             
             buf = ""
+            last_ping = time.time()
             while True:
-                data = s.recv(4096)
-                if not data:
-                    break
-                buf += data.decode('utf-8', errors='ignore')
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    line = line.strip()
-                    if line.startswith("adduser") or line.startswith("loggedin"):
-                        u_m = re.search(r'username="([^"]+)"', line)
-                        if u_m:
-                            u = u_m.group(1).strip().lower()
-                            if u not in ["admin", "kaafehdoostibot"]:
-                                update_tt_last_seen(u)
-            s.close()
+                try:
+                    data = s.recv(4096)
+                    if not data:
+                        break
+                    buf += data.decode('utf-8', errors='ignore')
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if line.startswith("adduser") or line.startswith("loggedin"):
+                            u_m = re.search(r'username="([^"]+)"', line)
+                            if u_m:
+                                u = u_m.group(1).strip().lower()
+                                if u not in ["admin", "kaafehdoostibot"]:
+                                    update_tt_last_seen(u)
+                except socket.timeout:
+                    # بدون رویداد در کانال، سوکت باز می‌ماند
+                    pass
+                
+                # ارسال مداوم پینگ هر ۲۵ ثانیه برای جلوگیری قطعی و ثابت ماندن دائم ربات در سرور
+                if time.time() - last_ping >= 25:
+                    try:
+                        s.sendall(b'ping\r\n')
+                        last_ping = time.time()
+                    except Exception:
+                        break
         except Exception:
-            time.sleep(15)
+            pass
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            time.sleep(5)
 
 def run_inactivity_checker():
     time.sleep(120)
