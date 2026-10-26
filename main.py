@@ -704,7 +704,7 @@ def splus_download_file_bytes(file_id):
         print(f"Error downloading file from SPLUS: {e}", flush=True)
     return None
 
-def splus_send_document_file(chat_id, filename, file_bytes, caption=None):
+def splus_send_document_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
     boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
     url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/sendDocument"
     
@@ -714,6 +714,9 @@ def splus_send_document_file(chat_id, filename, file_bytes, caption=None):
     if caption:
         body.extend(f"--{boundary}\r\n".encode())
         body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+    if reply_markup:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
     body.extend(f"--{boundary}\r\n".encode())
     body.extend(f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode())
     body.extend(b'Content-Type: application/octet-stream\r\n\r\n')
@@ -729,6 +732,40 @@ def splus_send_document_file(chat_id, filename, file_bytes, caption=None):
     except Exception as e:
         print(f"Error sending document to SPLUS: {e}", flush=True)
         return None
+
+def splus_send_voice_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
+    boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
+    url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/sendVoice"
+    
+    body = bytearray()
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n'.encode())
+    if caption:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+    if reply_markup:
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(f'Content-Disposition: form-data; name="voice"; filename="{filename}"\r\n'.encode())
+    body.extend(b'Content-Type: audio/ogg\r\n\r\n')
+    body.extend(file_bytes)
+    body.extend(b'\r\n')
+    body.extend(f"--{boundary}--\r\n".encode())
+    
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": "Mozilla/5.0"}
+    req = urllib.request.Request(url, data=bytes(body), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Error sending voice to SPLUS: {e}", flush=True)
+        # Fallback to document
+        try:
+            return splus_send_document_file(chat_id, filename, file_bytes, caption=caption, reply_markup=reply_markup)
+        except Exception as e2:
+            print(f"Fallback sendDocument to SPLUS error: {e2}", flush=True)
+            return None
 
 # بررسی عضویت در کانال سروش کافه دوستی
 def is_splus_channel_member(user_id):
@@ -1629,6 +1666,7 @@ def handle_callback_query(cq):
         
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست عضویت سروش برای «{username}» توسط شما از طریق تلگرام تایید و ساخته شد ✅")
         return
 
     if data.startswith("rej_sp_"):
@@ -1656,6 +1694,7 @@ def handle_callback_query(cq):
             "با آرزوی بهروزی، شادکامی و موفقیت روزافزون برای شما. 🌸"
         )
         splus_send_message(target_chat_id, rejection_msg)
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست عضویت سروش برای «{persian_name}» توسط شما از طریق تلگرام رد شد ❌")
         return
 
     # تایید بازیابی سروش پلاس توسط مدیر
@@ -1705,6 +1744,7 @@ def handle_callback_query(cq):
         
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست عضویت سروش برای «{username}» توسط شما از طریق تلگرام تایید و ساخته شد ✅")
         return
 
     # رد درخواست بازیابی سروش پلاس توسط مدیر
@@ -1725,6 +1765,7 @@ def handle_callback_query(cq):
             "با آرزوی موفقیت و بهروزی برای شما. 🌸"
         )
         splus_send_message(target_chat_id, rejection_msg)
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, "🔔 گزارش مدیریت:\nدرخواست بازیابی متقاضی سروش توسط شما از طریق تلگرام رد شد ❌")
         return
 
     # دکمه‌های تحویل اکانت به کاربر تلگرام
@@ -1935,8 +1976,10 @@ def handle_splus_message(msg):
         voice_bytes = splus_download_file_bytes(voice_file_id)
         if voice_bytes:
             send_voice_file(ADMIN_CHAT_ID, f"splus_rec_{chat_id}.ogg", voice_bytes, caption=admin_caption, reply_markup=admin_keyboard)
+            splus_send_voice_file(SPLUS_ADMIN_CHAT_ID, f"splus_rec_{chat_id}.ogg", voice_bytes, caption=admin_caption, reply_markup=admin_keyboard)
         else:
             send_message(ADMIN_CHAT_ID, admin_caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
         return
 
     # ثبت نام در سروش: دریافت نام فارسی
@@ -1972,6 +2015,7 @@ def handle_splus_message(msg):
                 "وضعیت: از ایجاد یوزر تکراری جلوگیری شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_alert)
             return
 
         set_splus_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
@@ -2025,6 +2069,7 @@ def handle_splus_message(msg):
                 "وضعیت: این شماره از قبل دارای اکانت است و درخواست مسدود شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_alert)
             return
         
         set_splus_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
@@ -2078,8 +2123,10 @@ def handle_splus_message(msg):
         voice_bytes = splus_download_file_bytes(voice_file_id)
         if voice_bytes:
             send_voice_file(ADMIN_CHAT_ID, f"splus_new_{chat_id}.ogg", voice_bytes, caption=caption, reply_markup=admin_keyboard)
+            splus_send_voice_file(SPLUS_ADMIN_CHAT_ID, f"splus_new_{chat_id}.ogg", voice_bytes, caption=caption, reply_markup=admin_keyboard)
         else:
             send_message(ADMIN_CHAT_ID, caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, caption + "\n\n(خطا در دانلود ویس کاربر از سروش)", admin_keyboard)
         return
 
 def handle_splus_callback_query(cq):
@@ -2089,6 +2136,128 @@ def handle_splus_callback_query(cq):
     
     splus_request("answerCallbackQuery", {"callback_query_id": cq_id})
     
+    # تایید درخواست عضویت سروش پلاس توسط مدیر در سروش
+    if data.startswith("app_sp_"):
+        if from_user != SPLUS_ADMIN_CHAT_ID:
+            return
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        if not user_info:
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, "اطلاعات کاربر در سروش یافت نشد.")
+            return
+        
+        if user_info.get("step") == "COMPLETED":
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, "⚠️ این کاربر سروش قبلاً تایید و حسابش ساخته شده است.")
+            return
+        
+        chars = string.ascii_letters + string.digits
+        password_30 = ''.join(secrets.choice(chars) for _ in range(30))
+        username = user_info["username"]
+        phone = user_info.get("phone", "")
+        persian_name = user_info.get("persian_name", username)
+        
+        ok, res = create_teamtalk_account(username, password_30, phone)
+        if not ok:
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, f"❌ خطا در ساخت اکانت سرور تیم‌تاک برای کاربر سروش:\n{res}")
+            return
+            
+        set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
+        
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"✅ حساب کاربری «{username}» (نام: {persian_name}) با موفقیت در تیم‌تاک ساخته شد و مشخصات در سروش برای متقاضی ارسال گردید.")
+        send_message(ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست عضویت سروش برای «{username}» توسط شما از طریق سروش تایید و تحویل شد ✅")
+        
+        # ارسال مشخصات، فایل tt و قوانین به کاربر در سروش
+        splus_send_message(target_chat_id, "🎉 تبریک! حساب کاربری شما در سرور تیم‌تاک کافه دوستی توسط مدیریت تایید و ساخته شد.")
+        splus_send_message(target_chat_id, f"مشخصات اتصال به سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+        splus_send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+        splus_send_message(target_chat_id, f"رمز عبور اختصاصی شما:\n{password_30}")
+        
+        tt_bytes = generate_tt_file_bytes(username, password_30, persian_name)
+        filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+        splus_send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        return
+
+    # رد درخواست عضویت سروش پلاس توسط مدیر در سروش
+    if data.startswith("rej_sp_"):
+        if from_user != SPLUS_ADMIN_CHAT_ID:
+            return
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        persian_name = user_info['persian_name'] if user_info else 'کاربر'
+        set_splus_user(target_chat_id, step="REJECTED")
+        
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"❌ درخواست عضویت متقاضی سروش ({persian_name}) رد شد.")
+        send_message(ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست عضویت سروش برای «{persian_name}» توسط شما از طریق سروش رد شد ❌")
+        
+        rejection_msg = (
+            "درود و احترام؛\n\n"
+            "ضمن قدردانی از ابراز لطف و همراهی شما با مجموعه کافه دوستی، به اطلاع می‌رسانیم که پس از بررسی تیم مدیریت، متاسفانه در حال حاضر امکان تایید درخواست عضویت شما وجود ندارد.\n\n"
+            "با آرزوی بهروزی، شادکامی و موفقیت روزافزون برای شما. 🌸"
+        )
+        splus_send_message(target_chat_id, rejection_msg)
+        return
+
+    # تایید بازیابی سروش پلاس توسط مدیر در سروش
+    if data.startswith("app_rec_sp_"):
+        if from_user != SPLUS_ADMIN_CHAT_ID:
+            return
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_splus_user(target_chat_id)
+        if not user_info:
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, "اطلاعات کاربر سروش یافت نشد.")
+            return
+            
+        username = user_info["username"]
+        phone = user_info.get("phone", "")
+        persian_name = user_info.get("persian_name", "")
+        
+        chars = string.ascii_letters + string.digits
+        password_30 = ''.join(secrets.choice(chars) for _ in range(30))
+        
+        ok = reset_teamtalk_account(username, password_30, phone)
+        if not ok:
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, f"❌ خطا در بازیابی اکانت سروش {username} در سرور تیم‌تاک.")
+            return
+            
+        set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
+        
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, f"✅ بازیابی حساب «{username}» انجام و مشخصات جدید در سروش برای متقاضی ارسال شد.")
+        send_message(ADMIN_CHAT_ID, f"🔔 گزارش مدیریت:\nدرخواست بازیابی سروش برای «{username}» توسط شما از طریق سروش تایید شد ✅")
+        
+        splus_send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
+        splus_send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+        splus_send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+        splus_send_message(target_chat_id, f"رمز عبور جدید شما:\n{password_30}")
+        
+        tt_bytes = generate_tt_file_bytes(username, password_30, persian_name if persian_name else username)
+        filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+        splus_send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        splus_send_message(target_chat_id, rules_header + RULES_TEXT)
+        return
+
+    # رد درخواست بازیابی سروش پلاس توسط مدیر در سروش
+    if data.startswith("rej_rec_sp_"):
+        if from_user != SPLUS_ADMIN_CHAT_ID:
+            return
+        target_chat_id = int(data.split("_")[-1])
+        set_splus_user(target_chat_id, step="REJECTED")
+        
+        splus_send_message(SPLUS_ADMIN_CHAT_ID, "❌ درخواست بازیابی متقاضی سروش رد شد.")
+        send_message(ADMIN_CHAT_ID, "🔔 گزارش مدیریت:\nدرخواست بازیابی متقاضی سروش توسط شما از طریق سروش رد شد ❌")
+        
+        rejection_msg = (
+            "درود و احترام؛\n\n"
+            "درخواست بازیابی حساب کاربری شما پس از بررسی توسط مدیریت سرور کافه دوستی، مورد تایید قرار نگرفت.\n\n"
+            "با آرزوی بهترین‌ها برای شما. 🌸"
+        )
+        splus_send_message(target_chat_id, rejection_msg)
+        return
+
     if data == "sp_dl_menu":
         dl_keyboard = {
             "inline_keyboard": [
