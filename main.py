@@ -1438,6 +1438,23 @@ def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/test_splus":
+                token = "70705855:MthyAyaCzFaoIqe6_qBvCzaMcfbWrlptaLU"
+                url = f"https://api.splus.ir/bot{token}/getMe"
+                try:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        res = resp.read().decode('utf-8')
+                        self.send_response(200)
+                        self.send_header("Content-type", "text/plain; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(f"SPLUS OK: {res}".encode('utf-8'))
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(f"SPLUS ERR: {e}".encode('utf-8'))
+                return
             self.send_response(200)
             self.send_header("Content-type", "text/plain; charset=utf-8")
             self.end_headers()
