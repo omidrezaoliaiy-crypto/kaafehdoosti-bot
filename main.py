@@ -202,7 +202,7 @@ def get_tt_existing_cached():
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         
         time.sleep(1.5)
@@ -283,7 +283,7 @@ def delete_tt_account_server(username):
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
@@ -356,8 +356,8 @@ def monitor_teamtalk_activity():
             login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
             s.sendall(login_cmd.encode('utf-8'))
             time.sleep(1)
-            # پیوستن به کانال اصلی (Root) تا در لیست کانال‌ها و کاربران برای همه نمایان باشد
-            s.sendall(b'join chanid=1\r\n')
+            # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=13) تا در لابی نماند
+            s.sendall(b'join chanid=13 password="12123123"\r\n')
             
             last_ping = time.time()
             buffer = ""
@@ -585,8 +585,8 @@ def create_teamtalk_account(username, password, phone):
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096) # banner
         
-        # لاگین ربات ادمین با نام مستعار «ربات یوزر دهی»
-        login_cmd = f'login username="{TT_ADMIN_USER}" password="{TT_ADMIN_PASS}" nickname="{TT_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
+        # لاگین ربات با نام مستعار «ربات یوزر دهی»
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         resp = s.recv(8192).decode('utf-8', errors='ignore')
@@ -623,7 +623,7 @@ def reset_teamtalk_account(username, password, phone=""):
         s.settimeout(10)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
