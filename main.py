@@ -616,6 +616,93 @@ def create_teamtalk_account(username, password, phone):
     except Exception as e:
         return False, str(e)
 
+# ----------------- بازیابی و به‌روزرسانی حساب کاربری تیم‌تاک -----------------
+def reset_teamtalk_account(username, password, phone=""):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(10)
+        s.connect((TT_HOST, TT_PORT))
+        s.recv(4096)
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" protocol="5.13" clientname="TeamTalk5"\r\n'
+        s.sendall(login_cmd.encode('utf-8'))
+        time.sleep(1)
+        s.recv(8192)
+        
+        # حذف و ایجاد مجدد با رمز عبور جدید
+        del_cmd = f'delaccount username="{username}"\r\n'
+        s.sendall(del_cmd.encode('utf-8'))
+        time.sleep(0.5)
+        
+        cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} cmdflood=[10,60000]\r\n'
+        s.sendall(cmd_new.encode('utf-8'))
+        time.sleep(0.5)
+        
+        s.sendall(b'saveconfig\r\n')
+        time.sleep(0.5)
+        s.close()
+        
+        TT_CACHE["usernames"].add(username.lower())
+        if phone:
+            TT_CACHE["phones"].add(phone)
+        return True
+    except Exception as e:
+        print(f"Error resetting TT account {username}: {e}", flush=True)
+        return False
+
+def find_existing_account(search_query):
+    query = search_query.strip()
+    if not query:
+        return None
+    
+    fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+    clean_p = query.translate(fa_to_en).replace("+98", "0").replace(" ", "").replace("-", "")
+    phone_candidate = None
+    if clean_p.startswith("98"):
+        phone_candidate = "0" + clean_p[2:]
+    elif clean_p.startswith("9") and len(clean_p) == 10:
+        phone_candidate = "0" + clean_p
+    elif clean_p.startswith("09") and len(clean_p) == 11 and clean_p.isdigit():
+        phone_candidate = clean_p
+        
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    if phone_candidate:
+        c.execute("SELECT username, phone, persian_name, password FROM users WHERE phone=?", (phone_candidate,))
+        row = c.fetchone()
+        if row:
+            conn.close()
+            return {"username": row[0], "phone": row[1], "persian_name": row[2], "password": row[3]}
+            
+        c.execute("SELECT username, note FROM tt_activity WHERE note LIKE ?", (f"%{phone_candidate}%",))
+        row_act = c.fetchone()
+        if row_act:
+            conn.close()
+            return {"username": row_act[0], "phone": phone_candidate, "persian_name": "", "password": ""}
+            
+    c.execute("SELECT username, phone, persian_name, password FROM users WHERE LOWER(username)=?", (query.lower(),))
+    row = c.fetchone()
+    if row:
+        conn.close()
+        return {"username": row[0], "phone": row[1], "persian_name": row[2], "password": row[3]}
+        
+    c.execute("SELECT username, note FROM tt_activity WHERE LOWER(username)=?", (query.lower(),))
+    row_act = c.fetchone()
+    if row_act:
+        conn.close()
+        note_p = extract_iranian_phone(row_act[1]) if row_act[1] else ""
+        return {"username": row_act[0], "phone": note_p, "persian_name": "", "password": ""}
+        
+    conn.close()
+    
+    u_set, p_set = get_tt_existing_cached()
+    if query.lower() in u_set:
+        return {"username": query.lower(), "phone": "", "persian_name": "", "password": ""}
+    if phone_candidate and phone_candidate in p_set:
+        return {"username": "", "phone": phone_candidate, "persian_name": "", "password": ""}
+        
+    return None
+
 # ----------------- ساخت فایل tt -----------------
 def generate_tt_file_bytes(username, password, nickname):
     content = f'''<?xml version="1.0" encoding="UTF-8" ?>
@@ -662,12 +749,29 @@ def handle_message(msg):
         send_message(chat_id, dl_text, dl_keyboard)
         return
     
+    # دستور شروع فرآیند بازیابی حساب کاربری
+    if text.lower() in ["/recover", "بازیابی", "بازیابی حساب", "بازیابی اکانت", "recover"]:
+        set_user(chat_id, step="RECOVER_WAIT_INPUT")
+        recovery_text = (
+            "🔄 بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "مرحله اول:\n"
+            "لطفاً نام کاربری (یوزرنیم) یا شماره موبایلی که قبلاً با آن در سرور حساب داشته‌اید را ارسال کنید:"
+        )
+        cancel_keyboard = {
+            "inline_keyboard": [
+                [{"text": "انصراف و بازگشت به منوی اصلی 🔙", "callback_data": "back_to_main"}]
+            ]
+        }
+        send_message(chat_id, recovery_text, cancel_keyboard)
+        return
+    
     if text == "/start":
         user_info = get_user(chat_id)
         if user_info and user_info.get("step") == "COMPLETED" and user_info.get("username"):
             keyboard = {
                 "inline_keyboard": [
                     [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{chat_id}"}],
+                    [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "start_recover"}],
                     [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
                 ]
             }
@@ -675,7 +779,7 @@ def handle_message(msg):
                 "سلام و درود به شما رفیق باصفا ☕️✨\n\n"
                 "شما قبلاً حساب کاربری اختصاصی خود را در سرور کافه دوستی دریافت کرده‌اید و هر کاربر تنها مجاز به داشتن یک حساب است.\n\n"
                 f"نام کاربری شما: {user_info['username']}\n\n"
-                "اگر مشخصات ورود، رمز عبور یا فایل اتصال را فراموش کرده‌اید، می‌توانید از طریق دکمه زیر مجدداً آن را دریافت نمایید."
+                "اگر مشخصات ورود، رمز عبور یا فایل اتصال را فراموش کرده‌اید، می‌توانید از طریق دکمه‌های زیر آن را دریافت نمایید."
             )
             send_message(chat_id, welcome_text, keyboard)
             
@@ -696,13 +800,14 @@ def handle_message(msg):
         keyboard = {
             "inline_keyboard": [
                 [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "start_register"}],
+                [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "start_recover"}],
                 [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
             ]
         }
         welcome_text = (
             "هر جا که کلمات از سر مهر جاری شوند و دل‌ها بی‌نقاب کنار هم بنشینند، همان‌جا زندگی واقعی جریان دارد.\n\n"
             "به کافه دوستی خوش آمدید؛ سرپناهی از جنس صدا، ترانه و هم‌نشینی، برای کسانی که ارزش یک گفت‌وگوی زلال و از ته‌دل را می‌دانند. حضور شما در این فضا برای ما اتفاقی ارزشمند است و مشتاق شنیدن صدایتان در این جمع هستیم.\n\n"
-            "برای دریافت کلید ورود به سرور و پیوستن به خانواده کافه دوستی، کافی است روی دکمه زیر کلیک کنید."
+            "برای دریافت کلید ورود به سرور یا بازیابی حساب، از دکمه‌های زیر استفاده کنید."
         )
         send_message(chat_id, welcome_text, keyboard)
         return
@@ -712,7 +817,88 @@ def handle_message(msg):
         return
     
     step = user["step"]
-    
+
+    if step == "RECOVER_WAIT_INPUT":
+        if text in ["/start", "انصراف", "بازگشت", "منو"]:
+            set_user(chat_id, step="IDLE")
+            send_message(chat_id, "فرآیند بازیابی حساب لغو شد.")
+            return
+            
+        acc = find_existing_account(text)
+        if not acc or not acc.get("username"):
+            not_found_kb = {
+                "inline_keyboard": [
+                    [{"text": "بازگشت به منوی اصلی 🔙", "callback_data": "back_to_main"}]
+                ]
+            }
+            send_message(
+                chat_id,
+                "⚠️ حسابی با این نام کاربری یا شماره موبایل در سرور کافه دوستی یافت نشد.\n\n"
+                "لطفاً در نوشتن مشخصات دقت فرمایید و مجدداً ارسال کنید، یا برای ثبت‌نام حساب جدید از دکمه زیر به منوی اصلی بازگردید:",
+                not_found_kb
+            )
+            return
+
+        target_uname = acc["username"]
+        target_phone = acc.get("phone", "")
+        target_pname = acc.get("persian_name", "")
+        
+        set_user(chat_id, 
+                 step="RECOVER_WAIT_VOICE", 
+                 username=target_uname, 
+                 phone=target_phone if target_phone else "",
+                 persian_name=target_pname if target_pname else "")
+        
+        step2_text = (
+            f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.\n\n"
+            "مرحله دوم (ارسال ویس درخواست بازیابی):\n"
+            "لطفاً یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "۱. خودتان را کامل معرفی کنید (نام و نام خانوادگی، شهر و سن)\n"
+            f"۲. صراحتاً اعلام کنید که درخواست بازیابی حساب کاربری «{target_uname}» را دارید.\n\n"
+            "منتظر ارسال ویس شما هستیم..."
+        )
+        send_message(chat_id, step2_text)
+        return
+
+    if step == "RECOVER_WAIT_VOICE":
+        if not voice:
+            send_message(chat_id, "لطفاً درخواست بازیابی خود را به صورت پیام صوتی (ویس) در تلگرام ارسال فرمایید:")
+            return
+            
+        voice_file_id = voice["file_id"]
+        set_user(chat_id, step="RECOVER_WAIT_ADMIN", voice_file_id=voice_file_id)
+        
+        send_message(
+            chat_id,
+            "درخواست بازیابی حساب شما به همراه ویس برای مدیریت سرور کافه دوستی ارسال شد ⏳\n\n"
+            "پس از بررسی و تایید توسط مدیریت، اطلاعات ورود جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد."
+        )
+        
+        tg_user = msg.get("from", {})
+        tg_uname = f"@{tg_user.get('username')}" if tg_user.get("username") else "ندارد"
+        target_uname = user.get("username", "نامشخص")
+        target_phone = user.get("phone", "ثبت‌نشده")
+        target_pname = user.get("persian_name", "نامشخص")
+        
+        admin_caption = (
+            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی:\n\n"
+            f"🔤 نام کاربری: {target_uname}\n"
+            f"📱 شماره تلفن: {target_phone if target_phone else 'ثبت‌نشده'}\n"
+            f"👤 نام فارسی: {target_pname if target_pname else 'نامشخص'}\n"
+            f"💬 متقاضی تلگرام: {tg_uname} (شناسه: {chat_id})\n\n"
+            "لطفاً ویس ارسالی را گوش دهید و تصمیم‌گیری فرمایید:"
+        )
+        admin_keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "تایید بازیابی و تحویل حساب ✅", "callback_data": f"app_rec_{chat_id}"},
+                    {"text": "رد درخواست بازیابی ❌", "callback_data": f"rej_rec_{chat_id}"}
+                ]
+            ]
+        }
+        send_voice(ADMIN_CHAT_ID, voice_file_id, caption=admin_caption, reply_markup=admin_keyboard)
+        return
+
     if step == "WAIT_NAME":
         if not text:
             send_message(chat_id, "لطفا نام و نام خانوادگی خود را به صورت متنی و فارسی ارسال کنید:")
@@ -924,13 +1110,14 @@ def handle_callback_query(cq):
             keyboard = {
                 "inline_keyboard": [
                     [{"text": "دریافت مجدد مشخصات حساب کاربری 📝", "callback_data": f"resend_{from_user}"}],
+                    [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "start_recover"}],
                     [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
                 ]
             }
             welcome_text = (
                 "سلام و درود به شما رفیق باصفا ☕️✨\n\n"
                 f"نام کاربری شما در سرور کافه دوستی: {user_info['username']}\n\n"
-                "از طریق دکمه‌های زیر می‌توانید اطلاعات ورود یا نرم‌افزار را دریافت نمایید."
+                "از طریق دکمه‌های زیر می‌توانید مشخصات، بازیابی یا نرم‌افزار را دریافت نمایید."
             )
             send_message(from_user, welcome_text, keyboard)
             return
@@ -938,15 +1125,32 @@ def handle_callback_query(cq):
             keyboard = {
                 "inline_keyboard": [
                     [{"text": "ورود به کافه دوستی و دریافت حساب ☕️✨", "callback_data": "start_register"}],
+                    [{"text": "بازیابی حساب کاربری 🔄", "callback_data": "start_recover"}],
                     [{"text": "دانلود نرم‌افزار تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
                 ]
             }
             welcome_text = (
                 "به کافه دوستی خوش آمدید ☕️✨\n\n"
-                "برای دریافت حساب کاربری یا دانلود برنامه از دکمه‌های زیر استفاده کنید:"
+                "برای دریافت حساب کاربری، بازیابی حساب یا دانلود برنامه از دکمه‌های زیر استفاده کنید:"
             )
             send_message(from_user, welcome_text, keyboard)
             return
+
+    # شروع فرآیند بازیابی حساب
+    if data == "start_recover":
+        set_user(from_user, step="RECOVER_WAIT_INPUT")
+        recovery_text = (
+            "🔄 بازیابی حساب کاربری در کافه دوستی:\n\n"
+            "مرحله اول:\n"
+            "لطفاً نام کاربری (یوزرنیم) یا شماره موبایلی که قبلاً با آن در سرور حساب داشته‌اید را ارسال کنید:"
+        )
+        cancel_keyboard = {
+            "inline_keyboard": [
+                [{"text": "انصراف و بازگشت به منوی اصلی 🔙", "callback_data": "back_to_main"}]
+            ]
+        }
+        send_message(from_user, recovery_text, cancel_keyboard)
+        return
 
     if data in ["start_register", "check_join"]:
         user_info = get_user(from_user)
@@ -1115,6 +1319,79 @@ def handle_callback_query(cq):
             "درود و احترام؛\n\n"
             "ضمن قدردانی از ابراز لطف و همراهی شما با مجموعه کافه دوستی، به اطلاع می‌رسانیم که پس از بررسی تیم مدیریت، متاسفانه در حال حاضر امکان تایید درخواست عضویت شما وجود ندارد.\n\n"
             "با آرزوی بهروزی، شادکامی و موفقیت روزافزون برای شما. 🌸"
+        )
+        send_message(target_chat_id, rejection_msg)
+        return
+
+    # تایید بازیابی حساب کاربری توسط مدیر
+    if data.startswith("app_rec_"):
+        target_chat_id = int(data.split("_")[-1])
+        user_info = get_user(target_chat_id)
+        if not user_info:
+            send_message(ADMIN_CHAT_ID, "اطلاعات کاربر یافت نشد.")
+            return
+            
+        username = user_info["username"]
+        phone = user_info.get("phone", "")
+        persian_name = user_info.get("persian_name", "")
+        
+        # ساخت رمز عبور جدید امن ۳۰ کاراکتری
+        chars = string.ascii_letters + string.digits
+        password_30 = ''.join(secrets.choice(chars) for _ in range(30))
+        
+        ok = reset_teamtalk_account(username, password_30, phone)
+        if not ok:
+            send_message(ADMIN_CHAT_ID, f"خطا در بازیابی اکانت {username} در سرور تیم‌تاک.")
+            return
+            
+        set_user(target_chat_id, step="COMPLETED", password=password_30)
+        
+        # به‌روزرسانی پیام ویس در پیوی مدیر و حذف دکمه‌ها
+        updated_caption = (
+            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی:\n\n"
+            f"🔤 نام کاربری: {username}\n"
+            f"📱 شماره تلفن: {phone if phone else 'ثبت‌نشده'}\n\n"
+            "وضعیت: تایید شد و اطلاعات جدید حساب به متقاضی تحویل داده شد ✅"
+        )
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": updated_caption,
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        # ارسال مستقیم مشخصات و قوانین سرور به کاربر
+        send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
+        send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
+        send_message(target_chat_id, f"نام کاربری شما:\n{username}")
+        send_message(target_chat_id, f"رمز عبور جدید شما:\n{password_30}")
+        
+        # ارسال فایل tt
+        tt_bytes = generate_tt_file_bytes(username, password_30, persian_name if persian_name else username)
+        filename = f"KaafehDoosti_{username.replace(' ', '_')}.tt"
+        send_document_file(target_chat_id, filename, tt_bytes, caption="فایل اتصال آماده تیم‌تاک کافه دوستی. کافی است روی فایل کلیک کنید تا متصل شوید.")
+        
+        # ارسال متن کامل قوانین سرور
+        rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
+        send_message(target_chat_id, rules_header + RULES_TEXT)
+        return
+
+    # رد درخواست بازیابی توسط مدیر
+    if data.startswith("rej_rec_"):
+        target_chat_id = int(data.split("_")[-1])
+        set_user(target_chat_id, step="REJECTED")
+        
+        tg_request("editMessageCaption", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": "🔄 درخواست بازیابی حساب کاربری:\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
+            "reply_markup": {"inline_keyboard": []}
+        })
+        
+        rejection_msg = (
+            "درود و احترام؛\n\n"
+            "ضمن قدردانی از همراهی شما، به اطلاع می‌رسانیم که پس از بررسی تیم مدیریت کافه دوستی، متاسفانه درخواست بازیابی حساب کاربری شما تایید نشد.\n\n"
+            "با آرزوی موفقیت و بهروزی برای شما. 🌸"
         )
         send_message(target_chat_id, rejection_msg)
         return
