@@ -1148,14 +1148,6 @@ def handle_callback_query(cq):
         # ارسال متن کامل قوانین سرور به محض دریافت یوزر
         rules_header = "📜 قوانین حضور در سرور کافه دوستی:\n(لطفا با دقت مطالعه کنید؛ رعایت این موارد شرط حضور در سرور است)\n\n"
         send_message(target_chat_id, rules_header + RULES_TEXT)
-        
-        # دکمه دانلود تیم‌تاک برای کاربر
-        dl_help_keyboard = {
-            "inline_keyboard": [
-                [{"text": "دانلود مستقیم برنامه تیم‌تاک (اندروید و ویندوز) 📥", "callback_data": "dl_menu"}]
-            ]
-        }
-        send_message(target_chat_id, "اگر برنامه تیم‌تاک را روی دستگاه خود نصب ندارید، از طریق دکمه زیر می‌توانید نسخه رسمی را مستقیماً دانلود کنید:", dl_help_keyboard)
         return
 
 # ----------------- سرور سلامت برای رندر (Health Check) -----------------
