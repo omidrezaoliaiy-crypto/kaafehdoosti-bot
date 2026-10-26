@@ -110,6 +110,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS tt_activity (
+            username TEXT PRIMARY KEY,
+            note TEXT,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -221,10 +229,12 @@ def get_tt_existing_cached():
                 if u_m:
                     u = u_m.group(1).strip().lower()
                     usernames.add(u)
+                    note_str = n_m.group(1) if n_m else ""
                     if n_m:
-                        p = extract_iranian_phone(n_m.group(1))
+                        p = extract_iranian_phone(note_str)
                         if p:
                             phones.add(p)
+                    update_tt_last_seen(u, note=note_str)
                             
         TT_CACHE["time"] = time.time()
         TT_CACHE["usernames"] = usernames
@@ -233,6 +243,127 @@ def get_tt_existing_cached():
         print(f"Error fetching TT accounts: {e}", flush=True)
         
     return TT_CACHE["usernames"], TT_CACHE["phones"]
+
+# ----------------- رصد فعالیت، لاگین و حذف خودکار یوزرهای ۲ ماه غایب -----------------
+PROTECTED_USERS = {"admin", "kaafehdoostibot", "music player", "hivaplayer", "audio player", "omid.o", "yalda"}
+
+def update_tt_last_seen(username, note=None):
+    if not username:
+        return
+    username = username.strip().lower()
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        if note:
+            c.execute("""
+                INSERT INTO tt_activity (username, note, last_seen)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(username) DO UPDATE SET last_seen=CURRENT_TIMESTAMP, note=?
+            """, (username, note, note))
+        else:
+            c.execute("""
+                INSERT INTO tt_activity (username, last_seen)
+                VALUES (?, CURRENT_TIMESTAMP)
+                ON CONFLICT(username) DO UPDATE SET last_seen=CURRENT_TIMESTAMP
+            """, (username,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        pass
+
+def delete_tt_account_server(username):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect((TT_HOST, TT_PORT))
+        s.recv(4096)
+        cmd = 'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n'
+        s.sendall(cmd.encode('utf-8'))
+        time.sleep(1)
+        s.recv(8192)
+        
+        del_cmd = f'delaccount username="{username}"\r\n'
+        s.sendall(del_cmd.encode('utf-8'))
+        time.sleep(1)
+        s.sendall(b'saveconfig\r\n')
+        time.sleep(0.5)
+        s.close()
+        
+        if username.lower() in TT_CACHE["usernames"]:
+            TT_CACHE["usernames"].remove(username.lower())
+        return True
+    except Exception as e:
+        print(f"Error deleting account {username}: {e}", flush=True)
+        return False
+
+def cleanup_inactive_users():
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT username, note, last_seen FROM tt_activity WHERE last_seen < datetime('now', '-60 days')")
+        rows = c.fetchall()
+        conn.close()
+        
+        for row in rows:
+            username, note, last_seen = row
+            if username.lower() in PROTECTED_USERS:
+                continue
+            
+            ok = delete_tt_account_server(username)
+            if ok:
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("DELETE FROM tt_activity WHERE username=?", (username,))
+                c.execute("UPDATE users SET step='DELETED_INACTIVE' WHERE LOWER(username)=?", (username.lower(),))
+                conn.commit()
+                conn.close()
+                
+                report = (
+                    "🗑 گزارش پاکسازی خودکار سرور کافه دوستی:\n\n"
+                    f"کاربر «{username}» به دلیل عدم لاگین و حضور در سرور به مدت ۲ ماه (۶۰ روز)، طبق قانون شماره ۷ سرور به صورت خودکار حذف شد.\n\n"
+                    f"اطلاعات ثبت‌شده: {note if note else 'ندارد'}"
+                )
+                send_message(ADMIN_CHAT_ID, report)
+    except Exception as e:
+        print(f"Error in cleanup_inactive_users: {e}", flush=True)
+
+def monitor_teamtalk_activity():
+    while True:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(60)
+            s.connect((TT_HOST, TT_PORT))
+            s.recv(4096)
+            cmd = 'login username="admin" password="1234yal1234da12344321" nickname="ربات ناظر" protocol="5.13" clientname="TeamTalk5"\r\n'
+            s.sendall(cmd.encode('utf-8'))
+            
+            buf = ""
+            while True:
+                data = s.recv(4096)
+                if not data:
+                    break
+                buf += data.decode('utf-8', errors='ignore')
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    line = line.strip()
+                    if line.startswith("adduser") or line.startswith("loggedin"):
+                        u_m = re.search(r'username="([^"]+)"', line)
+                        if u_m:
+                            u = u_m.group(1).strip().lower()
+                            if u not in ["admin", "kaafehdoostibot"]:
+                                update_tt_last_seen(u)
+            s.close()
+        except Exception:
+            time.sleep(15)
+
+def run_inactivity_checker():
+    time.sleep(120)
+    while True:
+        try:
+            cleanup_inactive_users()
+        except Exception:
+            pass
+        time.sleep(86400) # هر ۲۴ ساعت یک بار بررسی می‌کند
 
 # ----------------- تبدیل نام فارسی به فینگلیش -----------------
 PERSIAN_TO_EN = {
@@ -467,6 +598,18 @@ def handle_message(msg):
                 "اگر مشخصات ورود، رمز عبور یا فایل اتصال را فراموش کرده‌اید، می‌توانید از طریق دکمه زیر مجدداً آن را دریافت نمایید."
             )
             send_message(chat_id, welcome_text, keyboard)
+            
+            # ارسال گزارش به مدیر
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ استارت مجدد توسط کاربر دارای اکانت!\n"
+                f"👤 نام: {user_info.get('persian_name', 'نامشخص')}\n"
+                f"🔤 نام کاربری: {user_info.get('username')}\n"
+                f"📱 شماره تلفن: {user_info.get('phone', 'ندارد')}\n"
+                f"💬 شناسه تلگرام: {chat_id}\n\n"
+                "وضعیت: ربات از ثبت‌نام مجدد جلوگیری کرد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
             return
 
         set_user(chat_id, step="IDLE")
@@ -506,6 +649,17 @@ def handle_message(msg):
                 "@pkaafehdoosti\n\n"
                 "در غیر این صورت، لطفاً نام خود را به همراه پسوند یا به صورت کامل‌تر بنویسید و ارسال کنید:"
             )
+            
+            # ارسال گزارش به مدیر
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور!\n"
+                f"👤 نام فارسی واردشده: {persian_name}\n"
+                f"🔤 نام کاربری معادل: {username}\n"
+                f"💬 شناسه تلگرام: {chat_id}\n\n"
+                "وضعیت: از ایجاد یوزر تکراری جلوگیری شد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
             return
 
         set_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
@@ -542,6 +696,17 @@ def handle_message(msg):
                 "در صورت نیاز به راهنمایی یا بازیابی حساب، با پشتیبانی در ارتباط باشید:\n"
                 "@pkaafehdoosti"
             )
+            
+            # ارسال گزارش به مدیر
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ تلاش برای ثبت‌نام با شماره تکراری!\n"
+                f"📱 شماره تلفن واردشده: {clean_phone}\n"
+                f"👤 نام فارسی متقاضی: {user.get('persian_name', 'نامشخص')}\n"
+                f"💬 شناسه تلگرام: {chat_id}\n\n"
+                "وضعیت: این شماره از قبل دارای اکانت است و درخواست خودکار مسدود شد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
             return
         
         set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
@@ -634,6 +799,18 @@ def handle_callback_query(cq):
                 "@pkaafehdoosti",
                 resend_keyboard
             )
+            
+            # ارسال گزارش به مدیر
+            admin_alert = (
+                "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
+                "⚠️ تلاش مجدد برای ثبت‌نام توسط کاربر دارای اکانت!\n"
+                f"👤 نام: {user_info.get('persian_name', 'نامشخص')}\n"
+                f"🔤 نام کاربری: {user_info.get('username')}\n"
+                f"📱 شماره ثبت‌شده: {user_info.get('phone', 'ندارد')}\n"
+                f"💬 شناسه تلگرام: {from_user}\n\n"
+                "وضعیت: درخواست مجدد توسط ربات مسدود شد."
+            )
+            send_message(ADMIN_CHAT_ID, admin_alert)
             return
 
         # بررسی عضویت اجباری در کانال
@@ -847,6 +1024,8 @@ def keep_alive_worker():
 
 threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
+threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
+threading.Thread(target=run_inactivity_checker, daemon=True).start()
 
 # ----------------- حلقه اصلی دریافت پیام‌ها -----------------
 def run_bot():
