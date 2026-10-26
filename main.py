@@ -355,6 +355,9 @@ def monitor_teamtalk_activity():
             s.recv(4096)
             login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
             s.sendall(login_cmd.encode('utf-8'))
+            time.sleep(1)
+            # پیوستن به کانال اصلی (Root) تا در لیست کانال‌ها و کاربران برای همه نمایان باشد
+            s.sendall(b'join chanid=1\r\n')
             
             last_ping = time.time()
             buffer = ""
