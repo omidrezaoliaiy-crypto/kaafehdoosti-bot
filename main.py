@@ -1110,17 +1110,18 @@ def handle_message(msg):
         send_message(chat_id, "اطلاعات برای مدیریت سرور کافه دوستی ارسال شد. پس از بررسی و تایید توسط مدیریت، مشخصات جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد.")
         
         tg_user = msg.get("from", {})
-        tg_uname = f"@{tg_user.get('username')}" if tg_user.get("username") else "ندارد"
+        tg_uname = f"@{tg_user.get('username')}" if tg_user.get("username") else "بدون آیدی"
         target_uname = user.get("username", "نامشخص")
         target_phone = user.get("phone", "ثبت‌نشده")
         target_pname = user.get("persian_name", "نامشخص")
         
         admin_caption = (
             "🔄 درخواست بازیابی حساب کاربری در کافه دوستی (تلگرام):\n\n"
-            f"🔤 نام کاربری: {target_uname}\n"
+            f"🔤 نام کاربری تیم‌تاک: {target_uname}\n"
             f"📱 شماره تلفن: {target_phone if target_phone else 'ثبت‌نشده'}\n"
             f"👤 نام فارسی: {target_pname if target_pname else 'نامشخص'}\n"
-            f"💬 متقاضی تلگرام: {tg_uname} (شناسه: {chat_id})\n\n"
+            f"🆔 آیدی تلگرام: {tg_uname}\n"
+            f"🔢 شناسه عددی تلگرام: {chat_id}\n\n"
             "لطفاً ویس ارسالی را گوش دهید و تصمیم‌گیری فرمایید:"
         )
         admin_keyboard = {
@@ -1157,15 +1158,26 @@ def handle_message(msg):
             )
             send_message(chat_id, dup_msg, dup_kb)
             
+            existing_acc = find_existing_account(username)
+            existing_phone = existing_acc.get("phone", "ثبت‌نشده") if existing_acc else "ثبت‌نشده"
+            existing_pname = existing_acc.get("persian_name", "") if existing_acc else ""
+            pname_info = f" (صاحب حساب: {existing_pname})" if existing_pname else ""
+            
+            tg_user = msg.get("from", {})
+            tg_username = f"@{tg_user.get('username')}" if tg_user.get('username') else "بدون آیدی"
+            
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور!\n"
-                f"👤 نام فارسی واردشده: {persian_name}\n"
-                f"🔤 نام کاربری معادل: {username}\n"
-                f"💬 شناسه تلگرام: {chat_id}\n\n"
+                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور (تلگرام)!\n"
+                f"🔤 نام کاربری موجود در تیم‌تاک: {username}{pname_info}\n"
+                f"📱 شماره تلفن صاحب حساب: {existing_phone}\n"
+                f"👤 نام فارسی متقاضی جدید: {persian_name}\n"
+                f"🆔 آیدی تلگرام: {tg_username}\n"
+                f"🔢 شناسه عددی تلگرام: {chat_id}\n\n"
                 "وضعیت: از ایجاد یوزر تکراری جلوگیری شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_alert)
             return
 
         set_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
@@ -1211,15 +1223,26 @@ def handle_message(msg):
             )
             send_message(chat_id, dup_msg, dup_kb)
             
+            existing_acc = find_existing_account(clean_phone)
+            existing_tt_user = existing_acc.get("username", "یافت نشد") if existing_acc else "یافت نشد"
+            existing_name = existing_acc.get("persian_name", "") if existing_acc else ""
+            name_info = f" (به نام: {existing_name})" if existing_name else ""
+            
+            tg_user = msg.get("from", {})
+            tg_username = f"@{tg_user.get('username')}" if tg_user.get('username') else "بدون آیدی"
+            
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ تلاش برای ثبت‌نام با شماره تکراری!\n"
+                "⚠️ تلاش برای ثبت‌نام با شماره تکراری در تلگرام!\n"
                 f"📱 شماره تلفن واردشده: {clean_phone}\n"
-                f"👤 نام فارسی متقاضی: {user.get('persian_name', 'نامشخص')}\n"
-                f"💬 شناسه تلگرام: {chat_id}\n\n"
-                "وضعیت: این شماره از قبل دارای اکانت است و درخواست مسدود شد."
+                f"🔤 نام کاربری موجود در تیم‌تاک: {existing_tt_user}{name_info}\n"
+                f"👤 نام فارسی متقاضی جدید: {user.get('persian_name', 'نامشخص')}\n"
+                f"🆔 آیدی تلگرام: {tg_username}\n"
+                f"🔢 شناسه عددی تلگرام: {chat_id}\n\n"
+                "وضعیت: این شماره از قبل دارای اکانت در سرور است و درخواست مسدود شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
+            splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_alert)
             return
         
         set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
@@ -1258,7 +1281,8 @@ def handle_message(msg):
             f"👤 نام فارسی: {user_info['persian_name']}\n"
             f"🔤 نام کاربری انگلیسی پیشنهادی: {user_info['username']}\n"
             f"📱 شماره موبایل: {user_info['phone']}\n"
-            f"💬 کاربر تلگرام: {tg_username} (شناسه: {chat_id})\n\n"
+            f"🆔 آیدی تلگرام: {tg_username}\n"
+            f"🔢 شناسه عددی تلگرام: {chat_id}\n\n"
             "لطفا ویس بالا را گوش دهید و تصمیم‌گیری کنید:"
         )
         
@@ -1930,13 +1954,16 @@ def handle_splus_message(msg):
         target_uname = user.get("username", "نامشخص")
         target_phone = user.get("phone", "ثبت‌نشده")
         target_pname = user.get("persian_name", "نامشخص")
+        sp_user = msg.get("from", {})
+        sp_username = f"@{sp_user.get('username')}" if sp_user.get('username') else "بدون آیدی"
         
         admin_caption = (
             "🔄 درخواست بازیابی حساب کاربری از طریق سروش پلاس 📱:\n\n"
-            f"🔤 نام کاربری: {target_uname}\n"
+            f"🔤 نام کاربری تیم‌تاک: {target_uname}\n"
             f"📱 شماره تلفن: {target_phone if target_phone else 'ثبت‌نشده'}\n"
             f"👤 نام فارسی: {target_pname if target_pname else 'نامشخص'}\n"
-            f"💬 شناسه سروش متقاضی: {chat_id}\n\n"
+            f"🆔 آیدی سروش متقاضی: {sp_username}\n"
+            f"🔢 شناسه سروش متقاضی: {chat_id}\n\n"
             "لطفاً ویس ارسالی را گوش دهید و تصمیم‌گیری فرمایید:"
         )
         admin_keyboard = {
@@ -1981,12 +2008,22 @@ def handle_splus_message(msg):
             )
             splus_send_message(chat_id, dup_msg, dup_kb)
             
+            existing_acc = find_existing_account(username)
+            existing_phone = existing_acc.get("phone", "ثبت‌نشده") if existing_acc else "ثبت‌نشده"
+            existing_pname = existing_acc.get("persian_name", "") if existing_acc else ""
+            pname_info = f" (صاحب حساب: {existing_pname})" if existing_pname else ""
+            
+            sp_user = msg.get("from", {})
+            sp_username = f"@{sp_user.get('username')}" if sp_user.get('username') else "بدون آیدی"
+            
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور از طریق سروش!\n"
-                f"👤 نام فارسی واردشده: {persian_name}\n"
-                f"🔤 نام کاربری معادل: {username}\n"
-                f"💬 شناسه سروش: {chat_id}\n\n"
+                "⚠️ تلاش برای ثبت‌نام با نام موجود در سرور (سروش)!\n"
+                f"🔤 نام کاربری موجود در تیم‌تاک: {username}{pname_info}\n"
+                f"📱 شماره تلفن صاحب حساب: {existing_phone}\n"
+                f"👤 نام فارسی متقاضی جدید: {persian_name}\n"
+                f"🆔 آیدی سروش متقاضی: {sp_username}\n"
+                f"🔢 شناسه سروش متقاضی: {chat_id}\n\n"
                 "وضعیت: از ایجاد یوزر تکراری جلوگیری شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
@@ -2036,13 +2073,23 @@ def handle_splus_message(msg):
             )
             splus_send_message(chat_id, dup_msg, dup_kb)
             
+            existing_acc = find_existing_account(clean_phone)
+            existing_tt_user = existing_acc.get("username", "یافت نشد") if existing_acc else "یافت نشد"
+            existing_name = existing_acc.get("persian_name", "") if existing_acc else ""
+            name_info = f" (به نام: {existing_name})" if existing_name else ""
+            
+            sp_user = msg.get("from", {})
+            sp_username = f"@{sp_user.get('username')}" if sp_user.get('username') else "بدون آیدی"
+            
             admin_alert = (
                 "🔔 گزارش هوشمند ربات کافه دوستی:\n\n"
-                "⚠️ تلاش برای ثبت‌نام با شماره تکراری از طریق سروش!\n"
+                "⚠️ تلاش برای ثبت‌نام با شماره تکراری از طریق سروش پلاس!\n"
                 f"📱 شماره تلفن واردشده: {clean_phone}\n"
-                f"👤 نام فارسی متقاضی: {user.get('persian_name', 'نامشخص')}\n"
-                f"💬 شناسه سروش: {chat_id}\n\n"
-                "وضعیت: این شماره از قبل دارای اکانت است و درخواست مسدود شد."
+                f"🔤 نام کاربری موجود در تیم‌تاک: {existing_tt_user}{name_info}\n"
+                f"👤 نام فارسی متقاضی جدید: {user.get('persian_name', 'نامشخص')}\n"
+                f"🆔 آیدی سروش متقاضی: {sp_username}\n"
+                f"🔢 شناسه سروش متقاضی: {chat_id}\n\n"
+                "وضعیت: این شماره از قبل دارای اکانت در سرور است و درخواست مسدود شد."
             )
             send_message(ADMIN_CHAT_ID, admin_alert)
             splus_send_message(SPLUS_ADMIN_CHAT_ID, admin_alert)
@@ -2077,12 +2124,16 @@ def handle_splus_message(msg):
         splus_send_message(chat_id, "اطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید توسط مدیریت، نتیجه در همین‌جا به شما اعلام خواهد شد.")
         
         user_info = get_splus_user(chat_id)
+        sp_user = msg.get("from", {})
+        sp_username = f"@{sp_user.get('username')}" if sp_user.get('username') else "بدون آیدی"
+        
         caption = (
             "🔔 درخواست عضویت و حساب جدید از طریق سروش پلاس 📱:\n\n"
             f"👤 نام فارسی: {user_info['persian_name']}\n"
             f"🔤 نام کاربری انگلیسی پیشنهادی: {user_info['username']}\n"
             f"📱 شماره موبایل: {user_info['phone']}\n"
-            f"💬 شناسه سروش متقاضی: {chat_id}\n\n"
+            f"🆔 آیدی سروش: {sp_username}\n"
+            f"🔢 شناسه سروش متقاضی: {chat_id}\n\n"
             "لطفا ویس بالا را گوش دهید و تصمیم‌گیری کنید:"
         )
         
