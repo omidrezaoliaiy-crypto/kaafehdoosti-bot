@@ -2521,6 +2521,32 @@ def get_radio_status():
         lines.append("قطعه فعلی: آهنگی در حال پخش نیست")
     return "\n".join(lines)
 
+RADIO_STATE_FILE = os.path.join(os.getcwd(), "radio_state.json")
+
+def load_saved_radio_state():
+    defaults = {
+        "volume_percent": 25,
+        "title_hidden": False,
+        "last_track_name": "Milad Rastaad موزیکدل - Refigh موزیکدل",
+        "current_index": 5
+    }
+    if os.path.exists(RADIO_STATE_FILE):
+        try:
+            with open(RADIO_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                defaults.update(data)
+                print(f"[Radio] Loaded state: {defaults}", flush=True)
+        except Exception as e:
+            print(f"[Radio] Load state err: {e}", flush=True)
+    return defaults
+
+def save_radio_state(state):
+    try:
+        with open(RADIO_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Radio] Save state err: {e}", flush=True)
+
 class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def __init__(self):
         super().__init__()
@@ -2528,16 +2554,47 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.logged_in = False
         self.joined = False
         self.playlist = []
-        self.current_index = 0
+        
+        saved = load_saved_radio_state()
+        self.volume_percent = saved.get("volume_percent", 25)
+        self.title_hidden = saved.get("title_hidden", False)
+        self.last_track_name = saved.get("last_track_name", "")
+        self.saved_current_index = saved.get("current_index", 0)
+        self.current_index = self.saved_current_index
+        
         self.is_streaming = False
         self.current_track = None
         self.last_update_id = 0
-        self.volume_percent = 100
         self.restart_requested = False
-        self.title_hidden = False
         self.lock = threading.Lock()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
+
+    def persist_state(self):
+        try:
+            state = {
+                "volume_percent": self.volume_percent,
+                "title_hidden": self.title_hidden,
+                "current_index": self.current_index,
+                "last_track_name": self.current_track.get("title", "") if self.current_track else self.last_track_name
+            }
+            save_radio_state(state)
+        except Exception as e:
+            print(f"[Radio] persist_state err: {e}", flush=True)
+
+    def restore_track_index(self):
+        with self.lock:
+            if not self.playlist:
+                return
+            if self.last_track_name:
+                for idx, t in enumerate(self.playlist):
+                    if t.get("title") == self.last_track_name:
+                        self.current_index = idx
+                        print(f"[Radio] Restored track to index {idx} ({self.last_track_name})", flush=True)
+                        return
+            if 0 <= self.saved_current_index < len(self.playlist):
+                self.current_index = self.saved_current_index
+                print(f"[Radio] Restored track to saved index {self.current_index}", flush=True)
 
     def tg_api(self, method, params=None):
         url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/{method}"
@@ -2610,6 +2667,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                         if self.joined:
                             self.update_player_title()
 
+            self.restore_track_index()
             if self.joined and not self.is_streaming and self.playlist:
                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
@@ -2628,6 +2686,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                     "path": path
                 })
         print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
+        self.restore_track_index()
 
     def update_player_title(self):
         with self.lock:
@@ -2671,6 +2730,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.current_index = index % len(self.playlist)
             track = self.playlist[self.current_index]
             self.current_track = track
+            self.persist_state()
 
         print(f"[Radio] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
         try:
@@ -2730,6 +2790,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def set_volume(self, percent, admin_name=None):
         percent = max(0, min(150, percent))
         self.volume_percent = percent
+        self.persist_state()
         gain = int((percent / 100.0) * 1000)
         try:
             mfp = TeamTalk5.MediaFilePlayback()
@@ -2813,9 +2874,10 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
+            self.restore_track_index()
             self.update_player_title()
             if self.playlist and not self.is_streaming:
-                threading.Thread(target=self.play_track, args=(0,), daemon=True).start()
+                threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
     def onCmdMyselfKickedFromChannel(self, nSource, user):
         print("[Radio] Bot left or kicked. Rejoining...", flush=True)
@@ -2869,6 +2931,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                     self.set_volume(vol, sender)
             elif msg_text in ["h", "تایتل", "hide"]:
                 self.title_hidden = not self.title_hidden
+                self.persist_state()
                 self.update_player_title()
                 if self.title_hidden:
                     self.send_chat("🙈 تایتل پلیر مخفی شد.")
