@@ -3320,6 +3320,58 @@ def run_health_server():
                 self.end_headers()
                 self.wfile.write(f"Ensure: {ok} ({msg})\nLoad: {load_msg}".encode('utf-8'))
                 return
+            if self.path == "/server_info":
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(6)
+                    s.connect((RADIO_TT_HOST, RADIO_TT_PORT))
+                    s.recv(1024)
+                    s.sendall(b'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n')
+                    time.sleep(1)
+                    raw = ""
+                    t0 = time.time()
+                    while time.time() - t0 < 2:
+                        try:
+                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
+                            if chunk: raw += chunk
+                            else: break
+                        except Exception:
+                            break
+                    s.sendall(b'listchannels\r\n')
+                    time.sleep(1)
+                    t0 = time.time()
+                    while time.time() - t0 < 2:
+                        try:
+                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
+                            if chunk: raw += chunk
+                            else: break
+                        except Exception:
+                            break
+                    s.sendall(b'listusers\r\n')
+                    time.sleep(1)
+                    t0 = time.time()
+                    while time.time() - t0 < 2:
+                        try:
+                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
+                            if chunk: raw += chunk
+                            else: break
+                        except Exception:
+                            break
+                    s.close()
+                    chans = [l for l in raw.splitlines() if l.startswith("addchannel ")]
+                    users = [l for l in raw.splitlines() if l.startswith("adduser ")]
+                    res_data = {"channels": chans, "users": users}
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res_data, ensure_ascii=False, indent=2).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(f"Err: {e}".encode('utf-8'))
+                    return
             if self.path == "/test_splus":
                 url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/getMe"
                 try:
