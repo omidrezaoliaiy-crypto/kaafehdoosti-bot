@@ -2463,10 +2463,363 @@ def ensure_linux_tt_sdk():
     except Exception as e:
         return False, f"Download failed: {e}"
 
+
+# ----------------- بارگذاری SDK تیم‌تاک و راه‌اندازی رادیو کافه دوستی -----------------
+ensure_linux_tt_sdk()
+if sys.platform == "win32":
+    sys.path.insert(0, r"C:\Users\Lenovo\.gemini\antigravity\scratch\TeamTalkPy")
+else:
+    sys.path.insert(0, os.getcwd())
+
+try:
+    import TeamTalk5
+except Exception as e:
+    print(f"[Radio] Error importing TeamTalk5: {e}", flush=True)
+
+RADIO_TT_HOST = "185.26.33.57"
+RADIO_TT_PORT = 10333
+RADIO_TT_USER = "radio kaafehdoosti"
+RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
+RADIO_TT_NICK = "رادیو کافه دوستی"
+RADIO_CHAN_ID = 15
+RADIO_ADMINS = {"omid.o", "yalda"}
+
+RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
+RADIO_TG_CHANNEL = "@raaduokaafehdoosti"
+RADIO_CACHE_DIR = os.path.join(os.getcwd(), "music_cache")
+os.makedirs(RADIO_CACHE_DIR, exist_ok=True)
+
+global_radio_bot = None
+
+def get_radio_status():
+    global global_radio_bot
+    if not global_radio_bot:
+        return "ربات رادیو کافه دوستی در حال راه‌اندازی است..."
+    b = global_radio_bot
+    lines = [
+        f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
+        f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
+        f"حضور در اتاق ۱۵ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
+        f"وضعیت پخش موزیک: {'در حال پخش' if b.is_streaming else 'متوقف'}",
+        f"میزان صدا: {b.volume_percent} درصد",
+        f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
+    ]
+    if b.current_track:
+        lines.append(f"قطعه فعلی ({b.current_index + 1}/{len(b.playlist)}): {b.current_track.get('title')}")
+    else:
+        lines.append("قطعه فعلی: آهنگی در حال پخش نیست")
+    return "\n".join(lines)
+
+class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
+    def __init__(self):
+        super().__init__()
+        self.connected = False
+        self.logged_in = False
+        self.joined = False
+        self.playlist = []
+        self.current_index = 0
+        self.is_streaming = False
+        self.current_track = None
+        self.last_update_id = 0
+        self.volume_percent = 100
+        self.lock = threading.Lock()
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def tg_api(self, method, params=None):
+        url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/{method}"
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with self.opener.open(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+        except Exception as e:
+            print(f"[Radio] TG API {method} error: {e}", flush=True)
+            return {}
+
+    def download_tg_file(self, file_id, dest_path):
+        try:
+            finfo = self.tg_api("getFile", {"file_id": file_id})
+            if not finfo.get("ok"):
+                return False
+            file_path = finfo["result"]["file_path"]
+            download_url = f"https://api.telegram.org/file/bot{RADIO_TG_TOKEN}/{file_path}"
+            req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with self.opener.open(req, timeout=60) as resp, open(dest_path, "wb") as f:
+                f.write(resp.read())
+            return True
+        except Exception as e:
+            print(f"[Radio] Download error: {e}", flush=True)
+            return False
+
+    def sync_telegram_playlist(self):
+        updates = self.tg_api("getUpdates", {"limit": 100})
+        if not updates.get("ok"):
+            return
+
+        new_tracks = []
+        for u in updates.get("result", []):
+            cp = u.get("channel_post") or u.get("message")
+            if not cp:
+                continue
+            audio = cp.get("audio") or cp.get("voice") or cp.get("document")
+            if not audio:
+                continue
+            
+            file_id = audio.get("file_id")
+            title = audio.get("title") or audio.get("file_name") or f"track_{cp['message_id']}"
+            performer = audio.get("performer") or ""
+            clean_title = "".join(c for c in title if c.isalnum() or c in " ._-()").strip()
+            if not clean_title.endswith(".mp3"):
+                clean_title += ".mp3"
+                
+            dest_filename = f"{cp['message_id']}_{clean_title}"
+            dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
+            display_name = f"{performer} - {title}".strip(" -")
+            
+            if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
+                print(f"[Radio] Downloading: {display_name}", flush=True)
+                if self.download_tg_file(file_id, dest_path):
+                    track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
+                    new_tracks.append(track_info)
+            else:
+                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
+                if not any(t["path"] == dest_path for t in self.playlist):
+                    new_tracks.append(track_info)
+
+        if new_tracks:
+            with self.lock:
+                for t in new_tracks:
+                    if not any(x["path"] == t["path"] for x in self.playlist):
+                        self.playlist.append(t)
+                        print(f"[Radio] Added track: {t['title']}", flush=True)
+                        if self.joined:
+                            self.send_chat(f"🎶 آهنگ جدید به پلی‌لیست اضافه شد:\n{t['title']}")
+
+            if self.joined and not self.is_streaming and self.playlist:
+                threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
+
+    def load_existing_cache(self):
+        if not os.path.exists(RADIO_CACHE_DIR):
+            return
+        files = sorted(os.listdir(RADIO_CACHE_DIR))
+        for fname in files:
+            if fname.lower().endswith((".mp3", ".m4a", ".ogg", ".wav")):
+                path = os.path.join(RADIO_CACHE_DIR, fname)
+                title = os.path.splitext(fname)[0]
+                if "_" in title:
+                    title = title.split("_", 1)[1]
+                self.playlist.append({
+                    "title": title,
+                    "path": path
+                })
+        print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
+
+    def send_chat(self, text):
+        if not self.joined:
+            return
+        try:
+            msgs = TeamTalk5.buildTextMessage(text, TeamTalk5.TextMsgType.MSGTYPE_CHANNEL, nChannelID=RADIO_CHAN_ID)
+            for m in msgs:
+                self.doTextMessage(m)
+        except Exception as e:
+            print(f"[Radio] send_chat error: {e}", flush=True)
+
+    def play_track(self, index):
+        with self.lock:
+            if not self.playlist:
+                return
+            self.current_index = index % len(self.playlist)
+            track = self.playlist[self.current_index]
+            self.current_track = track
+
+        print(f"[Radio] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
+        try:
+            self.stopStreamingMediaFileToChannel()
+            time.sleep(0.3)
+            ok = self.startStreamingMediaFileToChannel(track["path"], None)
+            if ok:
+                self.is_streaming = True
+                self.send_chat(f"🎵 در حال پخش ({self.current_index + 1}/{len(self.playlist)}):\n{track['title']}")
+            else:
+                print(f"[Radio] Failed to stream: {track['path']}", flush=True)
+                time.sleep(2)
+                self.play_next()
+        except Exception as e:
+            print(f"[Radio] Playback error: {e}", flush=True)
+
+    def play_next(self, admin_name=None):
+        if not self.playlist:
+            return
+        next_idx = (self.current_index + 1) % len(self.playlist)
+        if admin_name:
+            self.send_chat(f"⏭ تعویض آهنگ توسط {admin_name}")
+        self.play_track(next_idx)
+
+    def play_prev(self, admin_name=None):
+        if not self.playlist:
+            return
+        prev_idx = (self.current_index - 1) % len(self.playlist)
+        if admin_name:
+            self.send_chat(f"⏮ بازگشت به آهنگ قبلی توسط {admin_name}")
+        self.play_track(prev_idx)
+
+    def set_volume(self, percent, admin_name=None):
+        percent = max(0, min(100, percent))
+        self.volume_percent = percent
+        gain = int((percent / 100.0) * 16384)
+        try:
+            TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
+            msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد."
+            if admin_name:
+                msg += f" (توسط {admin_name})"
+            self.send_chat(msg)
+        except Exception as e:
+            print(f"[Radio] set_volume error: {e}", flush=True)
+
+    def upload_current_to_channel(self, requester_name):
+        if not self.current_track or not os.path.exists(self.current_track["path"]):
+            self.send_chat("❌ در حال حاضر آهنگی در حال پخش نیست.")
+            return
+        track = self.current_track
+        try:
+            print(f"[Radio] Uploading {track['path']} to room for {requester_name}...", flush=True)
+            self.send_chat(f"⏳ در حال آپلود فایل «{track['title']}» در بخش فایل‌های روم برای {requester_name}...")
+            self.doSendFile(RADIO_CHAN_ID, track["path"])
+        except Exception as e:
+            print(f"[Radio] doSendFile error: {e}", flush=True)
+            self.send_chat(f"❌ خطا در قرار دادن فایل آهنگ: {e}")
+
+    def onConnectSuccess(self):
+        print("[Radio] Connected to TeamTalk server!", flush=True)
+        self.connected = True
+        self.doLogin(RADIO_TT_NICK, RADIO_TT_USER, RADIO_TT_PASS, "TeamTalk5")
+
+    def onConnectFailed(self):
+        print("[Radio] Connect failed!", flush=True)
+        self.connected = False
+
+    def onConnectionLost(self):
+        print("[Radio] Connection lost!", flush=True)
+        self.connected = False
+        self.logged_in = False
+        self.joined = False
+        self.is_streaming = False
+
+    def onCmdMyselfLoggedIn(self, my_id, user_account):
+        print(f"[Radio] Logged in! MyID: {my_id}", flush=True)
+        self.logged_in = True
+        self.my_user_id = my_id
+        self.doJoinChannelByID(RADIO_CHAN_ID, "")
+
+    def onCmdUserJoinedChannel(self, user):
+        my_id = getattr(self, "my_user_id", self.getMyUserID())
+        if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
+            print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
+            self.joined = True
+            self.send_chat("📻 رادیو کافه دوستی روشن شد و آماده پخش است.")
+            if self.playlist and not self.is_streaming:
+                threading.Thread(target=self.play_track, args=(0,), daemon=True).start()
+
+    def onCmdMyselfKickedFromChannel(self, nSource, user):
+        print("[Radio] Bot left or kicked. Rejoining...", flush=True)
+        self.joined = False
+        time.sleep(2)
+        self.doJoinChannelByID(RADIO_CHAN_ID, "")
+
+    def onStreamMediaFile(self, mediafileinfo):
+        if mediafileinfo.nStatus == TeamTalk5.MediaFileStatus.MFS_FINISHED:
+            print("[Radio] Finished track. Playing next...", flush=True)
+            self.is_streaming = False
+            threading.Thread(target=self.play_next, daemon=True).start()
+
+    def onCmdFileNew(self, remotefile):
+        if remotefile.nChannelID == RADIO_CHAN_ID:
+            fname = TeamTalk5.ttstr(remotefile.szFileName)
+            print(f"[Radio] File ready in room: {fname}", flush=True)
+            self.send_chat(f"✅ فایل «{fname}» در بخش فایل‌های روم قرار گرفت. اکنون می‌توانید آن را دانلود فرمایید.")
+
+    def onCmdUserTextMessage(self, textmessage):
+        sender = TeamTalk5.ttstr(textmessage.szFromUsername).strip()
+        sender_lower = sender.lower()
+        msg_text = TeamTalk5.ttstr(textmessage.szMessage).strip().lower()
+        
+        print(f"[Radio] Chat from [{sender}]: {msg_text}", flush=True)
+        
+        if msg_text in ["dl", "دانلود"]:
+            threading.Thread(target=self.upload_current_to_channel, args=(sender,), daemon=True).start()
+            return
+            
+        if sender_lower in RADIO_ADMINS:
+            if msg_text in ["n", "next", "بعدی"]:
+                threading.Thread(target=self.play_next, args=(sender,), daemon=True).start()
+            elif msg_text in ["b", "prev", "back", "قبلی"]:
+                threading.Thread(target=self.play_prev, args=(sender,), daemon=True).start()
+            elif msg_text.startswith("v"):
+                part = msg_text[1:].strip()
+                if part.isdigit():
+                    vol = int(part)
+                    self.set_volume(vol, sender)
+            elif msg_text in ["help", "راهنما"]:
+                help_text = (
+                    "📋 راهنمای دستورات رادیو کافه دوستی:\n"
+                    "• دستور dl یا دانلود: قرار دادن آهنگ فعلی در فایل‌های کانال (برای همه کاربران)\n"
+                    "• دستور n یا بعدی: پخش آهنگ بعدی (مدیران)\n"
+                    "• دستور b یا قبلی: پخش آهنگ قبلی (مدیران)\n"
+                    "• دستور v با عدد (مثل v 80): تنظیم بلندی صدا (مدیران)"
+                )
+                self.send_chat(help_text)
+
+def radio_telegram_sync_worker(bot):
+    while True:
+        try:
+            bot.sync_telegram_playlist()
+        except Exception as e:
+            print(f"[Radio] Sync error: {e}", flush=True)
+        time.sleep(15)
+
+def start_radio_worker():
+    global global_radio_bot
+    print("شروع سرویس رادیو کافه دوستی...", flush=True)
+    try:
+        ensure_linux_tt_sdk()
+        bot = RadioMusicBot()
+        global_radio_bot = bot
+        bot.load_existing_cache()
+        
+        try:
+            bot.sync_telegram_playlist()
+        except Exception as e:
+            print(f"[Radio] Initial sync err: {e}", flush=True)
+            
+        threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
+        
+        while True:
+            try:
+                if not bot.connected:
+                    print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
+                    res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
+                    if not res:
+                        print("[Radio] connect() failed, retry in 5s...", flush=True)
+                        time.sleep(5)
+                        continue
+                bot.runEventLoop(200)
+            except Exception as e:
+                print(f"[Radio] Loop err: {e}", flush=True)
+                time.sleep(2)
+    except Exception as e:
+        print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
+
 def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/radio_status":
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(get_radio_status().encode('utf-8'))
+                return
             if self.path == "/test_tt_sdk":
                 ok, msg = ensure_linux_tt_sdk()
                 load_msg = ""
@@ -2533,6 +2886,7 @@ threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
+threading.Thread(target=start_radio_worker, daemon=True).start()
 
 # ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
 def run_soroush_bot():
