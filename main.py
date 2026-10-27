@@ -2440,10 +2440,52 @@ def handle_splus_callback_query(cq):
 import http.server
 import socketserver
 
+def ensure_linux_tt_sdk():
+    if sys.platform == "win32":
+        return True, "Windows"
+    so_path = "libTeamTalk5.so"
+    if os.path.exists(so_path) and os.path.getsize(so_path) > 1000000:
+        return True, "Already extracted"
+    url = "https://bearware.dk/teamtalk/v5.13/teamtalk-v5.13-ubuntu22-x86_64.tgz"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            data = r.read()
+        import tarfile, io
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+            for m in tar.getmembers():
+                if m.name.endswith("libTeamTalk5.so"):
+                    f = tar.extractfile(m)
+                    with open(so_path, "wb") as out:
+                        out.write(f.read())
+                    return True, f"Extracted libTeamTalk5.so: {os.path.getsize(so_path)} bytes"
+        return False, "libTeamTalk5.so not found in tar"
+    except Exception as e:
+        return False, f"Download failed: {e}"
+
 def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/test_tt_sdk":
+                ok, msg = ensure_linux_tt_sdk()
+                load_msg = ""
+                if ok:
+                    try:
+                        import ctypes
+                        dll = ctypes.cdll.LoadLibrary("./libTeamTalk5.so")
+                        dll.TT_InitTeamTalkPoll.restype = ctypes.c_void_p
+                        res = dll.TT_InitTeamTalkPoll()
+                        load_msg = f"SUCCESS! TTInstance: {res}"
+                        dll.TT_CloseTeamTalk.argtypes = [ctypes.c_void_p]
+                        dll.TT_CloseTeamTalk(res)
+                    except Exception as e:
+                        load_msg = f"Load failed: {e}"
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(f"Ensure: {ok} ({msg})\nLoad: {load_msg}".encode('utf-8'))
+                return
             if self.path == "/test_splus":
                 url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/getMe"
                 try:
