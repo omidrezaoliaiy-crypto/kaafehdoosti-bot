@@ -3190,6 +3190,7 @@ def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
+            import ctypes
             if self.path == "/probe_voice":
                 b = global_radio_bot
                 if not b:
