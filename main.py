@@ -2566,9 +2566,32 @@ class VoicePlayer:
         self.stop_event.set()
         if self.thread and self.thread.is_alive() and self.thread != threading.current_thread():
             self.thread.join(timeout=0.8)
+        try:
+            self.bot.insertAudioBlock(None)
+        except Exception:
+            pass
 
     def _play_worker(self, track_path):
         try:
+            # 1. Inspect channel codec to match channels and sample rate
+            chan_ch = 2
+            chan_sr = 48000
+            try:
+                chan = self.bot.getChannel(RADIO_CHAN_ID)
+                if getattr(chan.audiocodec, "nCodec", None) == TeamTalk5.Codec.OPUS_CODEC:
+                    c_ch = getattr(chan.audiocodec.opus, "nChannels", 2)
+                    c_sr = getattr(chan.audiocodec.opus, "nSampleRate", 48000)
+                    if c_ch in (1, 2):
+                        chan_ch = c_ch
+                    if c_sr in (8000, 16000, 24000, 48000):
+                        chan_sr = c_sr
+            except Exception as e:
+                print(f"[Radio] Channel codec inspect err: {e}", flush=True)
+
+            self.channels = chan_ch
+            self.sample_rate = chan_sr
+
+            # 2. Decode track to PCM matching channel parameters
             raw_pcm = None
             try:
                 import miniaudio
@@ -2591,37 +2614,37 @@ class VoicePlayer:
                 except Exception as e:
                     print(f"[Radio] ffmpeg decode err: {e}", flush=True)
 
-            if not raw_pcm or len(raw_pcm) < 3840:
+            min_chunk = int(self.sample_rate * 0.02) * self.channels * 2
+            if not raw_pcm or len(raw_pcm) < min_chunk:
                 print("[Radio] Direct Voice: Could not decode to PCM. Fallback to media file stream...", flush=True)
                 self.bot.stream_media_file_fallback(track_path)
                 return
 
-            print(f"[Radio] Direct Voice transmission started: {os.path.basename(track_path)} ({len(raw_pcm)} bytes PCM)", flush=True)
+            print(f"[Radio] Direct Voice transmission started: {os.path.basename(track_path)} ({len(raw_pcm)} bytes PCM, {self.channels}ch, {self.sample_rate}Hz)", flush=True)
             self.bot.diag.append("VOICE_TX_START")
-            
+
+            # 3. CRITICAL: Make sure voice transmission from microphone device is OFF
+            # Per TeamTalk C-API: If CLIENT_TX_VOICE is active, TT_InsertAudioBlock() will fail.
             try:
-                self.bot.initSoundInputDevice(1978)
+                self.bot.enableVoiceTransmission(False)
             except Exception as e:
-                print(f"[Radio] initSoundInputDevice err: {e}", flush=True)
-            try:
-                self.bot.enableVoiceTransmission(True)
-            except Exception as e:
-                print(f"[Radio] enableVoiceTransmission err: {e}", flush=True)
-                
+                print(f"[Radio] enableVoiceTransmission(False) err: {e}", flush=True)
+
             self.bot.is_streaming = True
             self.bot.update_player_title()
 
-            chunk_size = 3840  # 960 samples * 2 channels * 2 bytes = 20ms at 48kHz
+            samples_per_frame = int(self.sample_rate * 0.02)  # 960 for 20ms at 48kHz
+            chunk_size = samples_per_frame * self.channels * 2
             total_len = len(raw_pcm)
             pos = 0
             sample_index = 0
 
             buf_type = ctypes.c_byte * chunk_size
             ab = TeamTalk5.AudioBlock()
-            ab.nStreamID = 0
+            ab.nStreamID = 1
             ab.nSampleRate = self.sample_rate
             ab.nChannels = self.channels
-            ab.nSamples = 960
+            ab.nSamples = samples_per_frame
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
 
             try:
@@ -2630,6 +2653,8 @@ class VoicePlayer:
                 audioop = None
 
             next_time = time.perf_counter()
+            first_logged = False
+            failed_inserts = 0
 
             while pos < total_len and not self.stop_event.is_set():
                 chunk = raw_pcm[pos:pos + chunk_size]
@@ -2655,11 +2680,22 @@ class VoicePlayer:
                 raw_buf = buf_type.from_buffer_copy(chunk)
                 ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
                 ab.uSampleIndex = sample_index
-                sample_index += 960
+                sample_index += samples_per_frame
 
                 ins_ok = self.bot.insertAudioBlock(ab)
-                if pos == chunk_size:
+                if not first_logged:
                     self.bot.diag.append(f"FIRST_INS:{ins_ok}")
+                    first_logged = True
+
+                if not ins_ok:
+                    failed_inserts += 1
+                    if failed_inserts >= 15:
+                        print(f"[Radio] insertAudioBlock continuously rejected ({failed_inserts} times). Fallback to media file stream...", flush=True)
+                        self.bot.diag.append("INS_FAIL_FALLBACK")
+                        self.bot.stream_media_file_fallback(track_path)
+                        return
+                else:
+                    failed_inserts = 0
 
                 next_time += 0.020
                 sleep_time = next_time - time.perf_counter()
@@ -2668,18 +2704,24 @@ class VoicePlayer:
                 elif sleep_time < -0.1:
                     next_time = time.perf_counter()
 
+            # End audio block transmission session cleanly
+            try:
+                self.bot.insertAudioBlock(None)
+            except Exception:
+                pass
+
             if not self.stop_event.is_set():
                 print("[Radio] Direct Voice track finished. Playing next...", flush=True)
                 self.bot.is_streaming = False
-                try:
-                    self.bot.enableVoiceTransmission(False)
-                except Exception:
-                    pass
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
             print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
             self.bot.diag.append(f"VOICE_ERR:{e}")
+            try:
+                self.bot.insertAudioBlock(None)
+            except Exception:
+                pass
             if not self.stop_event.is_set():
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
 
@@ -3155,51 +3197,68 @@ def run_health_server():
                     self.end_headers()
                     self.wfile.write(b"No bot")
                     return
-                chan = b.getChannel(RADIO_CHAN_ID)
-                opus = getattr(chan.audiocodec, "opus", None)
-                res = {
-                    "flags": hex(b.getFlags()),
-                    "chan_codec": chan.audiocodec.nCodec,
-                    "opus_sr": getattr(opus, "nSampleRate", 0),
-                    "opus_ch": getattr(opus, "nChannels", 0),
-                    "opus_br": getattr(opus, "nBitrate", 0),
-                    "diag": b.diag[-10:],
-                    "is_streaming": b.is_streaming,
-                }
-                dev_ok = b.initSoundInputDevice(1978)
-                tx_ok = b.enableVoiceTransmission(True)
-                res["dev_ok"] = dev_ok
-                res["tx_ok"] = tx_ok
-                
-                # Test inserting audio block
-                ab = TeamTalk5.AudioBlock()
-                ab.nStreamID = 0
-                ab.nSampleRate = 48000
-                ab.nChannels = 2
-                ab.nSamples = 960
-                ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
-                raw_data = bytes(3840)
-                buf_type = ctypes.c_byte * 3840
-                raw_buf = buf_type.from_buffer_copy(raw_data)
-                ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
-                res["ins_stereo_960"] = b.insertAudioBlock(ab)
-                
-                ab.nSamples = 1920
-                res["ins_stereo_1920"] = b.insertAudioBlock(ab)
-                
-                ab.nChannels = 1
-                ab.nSamples = 960
-                raw_data_mono = bytes(1920)
-                buf_type_mono = ctypes.c_byte * 1920
-                raw_buf_mono = buf_type_mono.from_buffer_copy(raw_data_mono)
-                ab.lpRawAudio = ctypes.cast(raw_buf_mono, ctypes.c_void_p)
-                res["ins_mono_960"] = b.insertAudioBlock(ab)
-                
-                self.send_response(200)
-                self.send_header("Content-type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
-                return
+                try:
+                    chan = b.getChannel(RADIO_CHAN_ID)
+                    codec_type = getattr(chan.audiocodec, "nCodec", -1)
+                    opus_sr = 0
+                    opus_ch = 0
+                    opus_br = 0
+                    if codec_type == TeamTalk5.Codec.OPUS_CODEC:
+                        opus_sr = getattr(chan.audiocodec.opus, "nSampleRate", 0)
+                        opus_ch = getattr(chan.audiocodec.opus, "nChannels", 0)
+                        opus_br = getattr(chan.audiocodec.opus, "nBitRate", 0)
+                    res = {
+                        "flags": hex(b.getFlags()),
+                        "chan_codec": codec_type,
+                        "opus_sr": opus_sr,
+                        "opus_ch": opus_ch,
+                        "opus_br": opus_br,
+                        "diag": b.diag[-10:],
+                        "is_streaming": b.is_streaming,
+                    }
+                    
+                    # Test insertAudioBlock with enableVoiceTransmission(False)
+                    b.enableVoiceTransmission(False)
+                    time.sleep(0.05)
+                    res["flags_after_tx_false"] = hex(b.getFlags())
+                    
+                    # Test stereo 960 (3840 bytes)
+                    raw_data_s = bytes(3840)
+                    buf_s = (ctypes.c_byte * 3840).from_buffer_copy(raw_data_s)
+                    ab_s = TeamTalk5.AudioBlock()
+                    ab_s.nStreamID = 1
+                    ab_s.nSampleRate = 48000
+                    ab_s.nChannels = 2
+                    ab_s.nSamples = 960
+                    ab_s.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
+                    ab_s.lpRawAudio = ctypes.cast(buf_s, ctypes.c_void_p)
+                    res["ins_stereo_960"] = b.insertAudioBlock(ab_s)
+                    
+                    # Test mono 960 (1920 bytes)
+                    raw_data_m = bytes(1920)
+                    buf_m = (ctypes.c_byte * 1920).from_buffer_copy(raw_data_m)
+                    ab_m = TeamTalk5.AudioBlock()
+                    ab_m.nStreamID = 1
+                    ab_m.nSampleRate = 48000
+                    ab_m.nChannels = 1
+                    ab_m.nSamples = 960
+                    ab_m.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
+                    ab_m.lpRawAudio = ctypes.cast(buf_m, ctypes.c_void_p)
+                    res["ins_mono_960"] = b.insertAudioBlock(ab_m)
+                    
+                    b.insertAudioBlock(None)
+                    
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(f"Probe err: {e}".encode('utf-8'))
+                    return
             if self.path == "/radio_status":
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain; charset=utf-8")
