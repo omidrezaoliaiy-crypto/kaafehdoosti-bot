@@ -3321,45 +3321,34 @@ def run_health_server():
                 self.wfile.write(f"Ensure: {ok} ({msg})\nLoad: {load_msg}".encode('utf-8'))
                 return
             if self.path == "/server_info":
+                b = global_radio_bot
+                if not b or not b.connected:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"Bot not connected")
+                    return
                 try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.settimeout(6)
-                    s.connect((RADIO_TT_HOST, RADIO_TT_PORT))
-                    s.recv(1024)
-                    s.sendall(b'login username="admin" password="1234yal1234da12344321" protocol="5.13" clientname="TeamTalk5"\r\n')
-                    time.sleep(1)
-                    raw = ""
-                    t0 = time.time()
-                    while time.time() - t0 < 2:
-                        try:
-                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
-                            if chunk: raw += chunk
-                            else: break
-                        except Exception:
-                            break
-                    s.sendall(b'listchannels\r\n')
-                    time.sleep(1)
-                    t0 = time.time()
-                    while time.time() - t0 < 2:
-                        try:
-                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
-                            if chunk: raw += chunk
-                            else: break
-                        except Exception:
-                            break
-                    s.sendall(b'listusers\r\n')
-                    time.sleep(1)
-                    t0 = time.time()
-                    while time.time() - t0 < 2:
-                        try:
-                            chunk = s.recv(4096).decode('utf-8', errors='ignore')
-                            if chunk: raw += chunk
-                            else: break
-                        except Exception:
-                            break
-                    s.close()
-                    chans = [l for l in raw.splitlines() if l.startswith("addchannel ")]
-                    users = [l for l in raw.splitlines() if l.startswith("adduser ")]
+                    chans_raw = b.getServerChannels()
+                    users_raw = b.getServerUsers()
+                    chans = []
+                    for c in chans_raw:
+                        chans.append({
+                            "nChannelID": c.nChannelID,
+                            "nParentID": c.nParentID,
+                            "szName": TeamTalk5.ttstr(c.szName),
+                            "szTopic": TeamTalk5.ttstr(c.szTopic),
+                            "uChannelType": c.uChannelType,
+                            "nDiskQuota": c.nDiskQuota,
+                            "nMaxUsers": c.nMaxUsers,
+                        })
+                    users = []
+                    for u in users_raw:
+                        users.append({
+                            "nUserID": u.nUserID,
+                            "szNickname": TeamTalk5.ttstr(u.szNickname),
+                            "szUsername": TeamTalk5.ttstr(u.szUsername),
+                            "nChannelID": u.nChannelID,
+                        })
                     res_data = {"channels": chans, "users": users}
                     self.send_response(200)
                     self.send_header("Content-type", "application/json")
@@ -3368,7 +3357,6 @@ def run_health_server():
                     return
                 except Exception as e:
                     self.send_response(200)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
                     self.end_headers()
                     self.wfile.write(f"Err: {e}".encode('utf-8'))
                     return
