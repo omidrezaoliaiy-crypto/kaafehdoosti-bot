@@ -2624,7 +2624,11 @@ class VoicePlayer:
             ab.nSamples = 960
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
 
-            import audioop
+            try:
+                import audioop
+            except Exception:
+                audioop = None
+
             next_time = time.perf_counter()
 
             while pos < total_len and not self.stop_event.is_set():
@@ -2635,10 +2639,18 @@ class VoicePlayer:
 
                 vol = getattr(self.bot, "volume_percent", 100)
                 if vol != 100:
-                    try:
-                        chunk = audioop.mul(chunk, 2, max(0.0, min(1.5, vol / 100.0)))
-                    except Exception:
-                        pass
+                    factor = max(0.0, min(1.5, vol / 100.0))
+                    if audioop:
+                        try:
+                            chunk = audioop.mul(chunk, 2, factor)
+                        except Exception:
+                            pass
+                    else:
+                        import array
+                        samples = array.array('h', chunk)
+                        for i in range(len(samples)):
+                            samples[i] = max(-32768, min(32767, int(samples[i] * factor)))
+                        chunk = samples.tobytes()
 
                 raw_buf = buf_type.from_buffer_copy(chunk)
                 ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
@@ -2665,7 +2677,7 @@ class VoicePlayer:
 
         except Exception as e:
             print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
-            self.bot.diag.append(f"VOICE_ERR:{type(e).__name__}")
+            self.bot.diag.append(f"VOICE_ERR:{e}")
             if not self.stop_event.is_set():
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
 
