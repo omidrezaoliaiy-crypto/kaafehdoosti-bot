@@ -2678,18 +2678,35 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             mfp.audioPreprocessor.u.ttpreprocessor.bMuteLeftSpeaker = False
             mfp.audioPreprocessor.u.ttpreprocessor.bMuteRightSpeaker = False
             
-            ok = TeamTalk5._StartStreamingMediaFileToChannelEx(self._tt, track["path"], TeamTalk5.byref(mfp), None)
+            ok = False
+            gain = int((self.volume_percent / 100.0) * 1000)
+            try:
+                ok = TeamTalk5._StartStreamingMediaFileToChannelEx(self._tt, track["path"], TeamTalk5.byref(mfp), None)
+            except Exception as e:
+                print(f"[Radio] StartStreamingEx err: {e}", flush=True)
+                self.diag.append(f"EX_STREX:{e}")
+
             if not ok:
-                ok = self.startStreamingMediaFileToChannel(track["path"], None)
+                try:
+                    ok = self.startStreamingMediaFileToChannel(track["path"], None)
+                    if ok:
+                        TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
+                except Exception as e:
+                    print(f"[Radio] startStreaming err: {e}", flush=True)
+                    self.diag.append(f"EX_STR:{e}")
+
+            self.diag.append(f"STR:{ok}:{self.current_index}")
             if ok:
                 self.is_streaming = True
                 self.update_player_title()
             else:
+                self.is_streaming = False
                 print(f"[Radio] Failed to stream: {track['path']}", flush=True)
                 time.sleep(2)
                 self.play_next()
         except Exception as e:
             print(f"[Radio] Playback error: {e}", flush=True)
+            self.diag.append(f"PLAY_ERR:{type(e).__name__}")
 
     def play_next(self, admin_name=None):
         if not self.playlist:
@@ -2800,8 +2817,10 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.doJoinChannelByID(RADIO_CHAN_ID, "")
 
     def onStreamMediaFile(self, mediafileinfo):
-        if mediafileinfo.nStatus == TeamTalk5.MediaFileStatus.MFS_FINISHED:
-            print("[Radio] Finished track. Playing next...", flush=True)
+        status = getattr(mediafileinfo, "nStatus", -1)
+        self.diag.append(f"MFS:{status}")
+        if status in [TeamTalk5.MediaFileStatus.MFS_FINISHED, TeamTalk5.MediaFileStatus.MFS_ERROR, TeamTalk5.MediaFileStatus.MFS_ABORTED]:
+            print(f"[Radio] Track ended (status {status}). Playing next...", flush=True)
             self.is_streaming = False
             threading.Thread(target=self.play_next, daemon=True).start()
 
