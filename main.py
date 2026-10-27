@@ -2502,6 +2502,7 @@ def get_radio_status():
     except Exception:
         pass
     lines = [
+        f"لاگ رویدادها: {' | '.join(b.diag[-8:]) if getattr(b, 'diag', None) else 'هیچ'}",
         f"فلگ کلاینت: {hex(flags)}",
         f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
         f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
@@ -2530,6 +2531,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.volume_percent = 100
         self.lock = threading.Lock()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.diag = []
 
     def tg_api(self, method, params=None):
         url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/{method}"
@@ -2698,21 +2700,30 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
 
     def onCmdError(self, nSource, clienterrormsg):
         err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
+        self.diag.append(f"CMD_ERR:{nSource}:{clienterrormsg.nError}:{err_msg}")
         print(f"[Radio] CMD ERROR (src {nSource}): {clienterrormsg.nError} - {err_msg}", flush=True)
 
     def onCmdSuccess(self, nSource):
+        self.diag.append(f"CMD_OK:{nSource}")
         print(f"[Radio] CMD SUCCESS (src {nSource})", flush=True)
 
+    def onCmdProcessing(self, nSource, bCompleted):
+        pass
+
     def onConnectSuccess(self):
+        self.diag.append("CON_SUCCESS")
         print("[Radio] Connected to TeamTalk server!", flush=True)
         self.connected = True
-        self.doLogin(RADIO_TT_NICK, RADIO_TT_USER, RADIO_TT_PASS, "TeamTalk5")
+        cmd_id = self.doLogin(RADIO_TT_NICK, RADIO_TT_USER, RADIO_TT_PASS, "TeamTalk5")
+        self.diag.append(f"LOGIN_CMD:{cmd_id}")
 
     def onConnectFailed(self):
+        self.diag.append("CON_FAILED")
         print("[Radio] Connect failed!", flush=True)
         self.connected = False
 
     def onConnectionLost(self):
+        self.diag.append("CON_LOST")
         print("[Radio] Connection lost!", flush=True)
         self.connected = False
         self.logged_in = False
@@ -2720,13 +2731,16 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.is_streaming = False
 
     def onCmdMyselfLoggedIn(self, my_id, user_account):
+        self.diag.append(f"LOGGED_IN:{my_id}")
         print(f"[Radio] Logged in! MyID: {my_id}", flush=True)
         self.logged_in = True
         self.my_user_id = my_id
-        self.doJoinChannelByID(RADIO_CHAN_ID, "")
+        res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
+        self.diag.append(f"JOIN_CMD:{res}")
 
     def onCmdUserJoinedChannel(self, user):
         my_id = getattr(self, "my_user_id", self.getMyUserID())
+        self.diag.append(f"JOIN:{user.nUserID}:{user.nChannelID}")
         if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
@@ -2815,10 +2829,13 @@ def start_radio_worker():
                 if not is_connecting_or_connected and (time.time() - last_connect_attempt > 8):
                     last_connect_attempt = time.time()
                     print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
+                    bot.diag.append("DO_CONNECT")
                     res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
+                    bot.diag.append(f"CONN_RES:{res}")
                     print(f"[Radio] connect() called, returned: {res}", flush=True)
                 bot.runEventLoop(100)
             except Exception as e:
+                bot.diag.append(f"EXC:{type(e).__name__}:{e}")
                 print(f"[Radio] Loop err: {e}", flush=True)
                 time.sleep(1)
     except Exception as e:
