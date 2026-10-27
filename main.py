@@ -2496,7 +2496,13 @@ def get_radio_status():
     if not global_radio_bot:
         return "ربات رادیو کافه دوستی در حال راه‌اندازی است..."
     b = global_radio_bot
+    flags = 0
+    try:
+        flags = b.getFlags()
+    except Exception:
+        pass
     lines = [
+        f"فلگ کلاینت: {hex(flags)}",
         f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
         f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
         f"حضور در اتاق ۱۵ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
@@ -2690,6 +2696,13 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[Radio] doSendFile error: {e}", flush=True)
             self.send_chat(f"❌ خطا در قرار دادن فایل آهنگ: {e}")
 
+    def onCmdError(self, nSource, clienterrormsg):
+        err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
+        print(f"[Radio] CMD ERROR (src {nSource}): {clienterrormsg.nError} - {err_msg}", flush=True)
+
+    def onCmdSuccess(self, nSource):
+        print(f"[Radio] CMD SUCCESS (src {nSource})", flush=True)
+
     def onConnectSuccess(self):
         print("[Radio] Connected to TeamTalk server!", flush=True)
         self.connected = True
@@ -2794,19 +2807,20 @@ def start_radio_worker():
             
         threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
         
+        last_connect_attempt = 0
         while True:
             try:
-                if not bot.connected:
+                flags = bot.getFlags()
+                is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
+                if not is_connecting_or_connected and (time.time() - last_connect_attempt > 8):
+                    last_connect_attempt = time.time()
                     print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
                     res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
-                    if not res:
-                        print("[Radio] connect() failed, retry in 5s...", flush=True)
-                        time.sleep(5)
-                        continue
-                bot.runEventLoop(200)
+                    print(f"[Radio] connect() called, returned: {res}", flush=True)
+                bot.runEventLoop(100)
             except Exception as e:
                 print(f"[Radio] Loop err: {e}", flush=True)
-                time.sleep(2)
+                time.sleep(1)
     except Exception as e:
         print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
 
