@@ -2514,7 +2514,7 @@ def get_radio_status():
         f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
     ]
     if b.current_track:
-        next_idx = (b.current_index + 1) % len(b.playlist) if b.playlist else 0
+        next_idx = b.get_next_track_index(b.current_index) if b.playlist else 0
         next_track = b.playlist[next_idx] if b.playlist else {}
         lines.append(f"قطعه فعلی ({b.current_index + 1}/{len(b.playlist)}): {b.current_track.get('title')}")
         lines.append(f"قطعه بعدی: {next_track.get('title', 'ندارد')}")
@@ -2545,6 +2545,11 @@ def save_radio_state(state):
     try:
         with open(RADIO_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
     except Exception as e:
         print(f"[Radio] Save state err: {e}", flush=True)
 
@@ -2775,6 +2780,49 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 self.current_index = self.saved_current_index
                 print(f"[Radio] Restored track to saved index {self.current_index}", flush=True)
 
+    def apply_current_volume(self):
+        try:
+            percent = getattr(self, "volume_percent", 25)
+            gain = int(max(0, min(150, percent)) / 100.0 * 1000)
+            if hasattr(self, "_tt") and self._tt:
+                TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
+            print(f"[Radio] apply_current_volume: {percent}% (gain: {gain})", flush=True)
+            self.diag.append(f"VOL_SET:{percent}:{gain}")
+        except Exception as e:
+            print(f"[Radio] apply_current_volume err: {e}", flush=True)
+
+    @staticmethod
+    def get_playback_sequence(n):
+        if n <= 1:
+            return [0] if n == 1 else []
+        evens = [i for i in range(0, n, 2)]
+        odds = [i for i in range(1, n, 2)]
+        return evens + list(reversed(odds))
+
+    def get_next_track_index(self, from_index=None):
+        with self.lock:
+            n = len(self.playlist)
+            if n <= 1:
+                return 0
+            curr = self.current_index if from_index is None else from_index
+            seq = self.get_playback_sequence(n)
+            if curr in seq:
+                pos = seq.index(curr)
+                return seq[(pos + 1) % n]
+            return seq[0]
+
+    def get_prev_track_index(self, from_index=None):
+        with self.lock:
+            n = len(self.playlist)
+            if n <= 1:
+                return 0
+            curr = self.current_index if from_index is None else from_index
+            seq = self.get_playback_sequence(n)
+            if curr in seq:
+                pos = seq.index(curr)
+                return seq[(pos - 1) % n]
+            return seq[0]
+
     def tg_api(self, method, params=None):
         url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/{method}"
         if params:
@@ -2876,7 +2924,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 idx = self.current_index % len(self.playlist)
                 curr_track = self.playlist[idx]
                 curr_title = curr_track.get("title", f"قطعه {idx + 1}")
-                next_idx = (idx + 1) % len(self.playlist)
+                next_idx = self.get_next_track_index(idx)
                 next_track = self.playlist[next_idx]
                 next_title = next_track.get("title", f"قطعه {next_idx + 1}")
 
@@ -2911,6 +2959,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.current_track = track
             self.persist_state()
 
+        self.apply_current_volume()
         print(f"[Radio] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
         try:
             self.stop_all_playback()
@@ -2952,41 +3001,25 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def play_next(self, admin_name=None):
         if not self.playlist:
             return
-        next_idx = (self.current_index + 1) % len(self.playlist)
+        next_idx = self.get_next_track_index()
         self.play_track(next_idx)
 
     def play_prev(self, admin_name=None):
         if not self.playlist:
             return
-        prev_idx = (self.current_index - 1) % len(self.playlist)
+        prev_idx = self.get_prev_track_index()
         self.play_track(prev_idx)
 
     def set_volume(self, percent, admin_name=None):
         percent = max(0, min(150, percent))
         self.volume_percent = percent
         self.persist_state()
-        gain = int((percent / 100.0) * 1000)
-        try:
-            mfp = TeamTalk5.MediaFilePlayback()
-            mfp.uOffsetMSec = TeamTalk5.TT_MEDIAPLAYBACK_OFFSET_IGNORE
-            mfp.bPaused = False
-            mfp.audioPreprocessor.nPreprocessor = TeamTalk5.AudioPreprocessorType.TEAMTALK_AUDIOPREPROCESSOR
-            mfp.audioPreprocessor.u.ttpreprocessor.nGainLevel = gain
-            mfp.audioPreprocessor.u.ttpreprocessor.bMuteLeftSpeaker = False
-            mfp.audioPreprocessor.u.ttpreprocessor.bMuteRightSpeaker = False
-            
-            res_update = TeamTalk5._UpdateStreamingMediaFileToChannel(self._tt, TeamTalk5.byref(mfp), None)
-            TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
-            print(f"[Radio] set_volume: {percent}%, gain: {gain}, updated: {res_update}", flush=True)
-            self.diag.append(f"VOL:{percent}:{res_update}")
-            
-            msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد."
-            if admin_name:
-                msg += f" (توسط {admin_name})"
-            self.send_chat(msg)
-        except Exception as e:
-            print(f"[Radio] set_volume error: {e}", flush=True)
-            self.diag.append(f"VOL_ERR:{e}")
+        self.apply_current_volume()
+        
+        msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد."
+        if admin_name:
+            msg += f" (توسط {admin_name})"
+        self.send_chat(msg)
 
     def upload_current_to_channel(self, requester_name):
         if not self.current_track or not os.path.exists(self.current_track["path"]):
@@ -3038,6 +3071,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         print(f"[Radio] Logged in! MyID: {my_id}", flush=True)
         self.logged_in = True
         self.my_user_id = my_id
+        self.apply_current_volume()
         self.doChangeNickname(RADIO_TT_NICK)
         res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
         self.diag.append(f"JOIN_CMD:{res}")
@@ -3048,6 +3082,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
+            self.apply_current_volume()
             self.restore_track_index()
             self.update_player_title()
             if self.playlist and not self.is_streaming:
