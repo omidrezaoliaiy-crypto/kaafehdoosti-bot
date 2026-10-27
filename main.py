@@ -2512,7 +2512,10 @@ def get_radio_status():
         f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
     ]
     if b.current_track:
+        next_idx = (b.current_index + 1) % len(b.playlist) if b.playlist else 0
+        next_track = b.playlist[next_idx] if b.playlist else {}
         lines.append(f"قطعه فعلی ({b.current_index + 1}/{len(b.playlist)}): {b.current_track.get('title')}")
+        lines.append(f"قطعه بعدی: {next_track.get('title', 'ندارد')}")
     else:
         lines.append("قطعه فعلی: آهنگی در حال پخش نیست")
     return "\n".join(lines)
@@ -2602,7 +2605,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                         self.playlist.append(t)
                         print(f"[Radio] Added track: {t['title']}", flush=True)
                         if self.joined:
-                            self.send_chat(f"🎶 آهنگ جدید به پلی‌لیست اضافه شد:\n{t['title']}")
+                            self.update_player_title()
 
             if self.joined and not self.is_streaming and self.playlist:
                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
@@ -2622,6 +2625,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                     "path": path
                 })
         print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
+
+    def update_player_title(self):
+        with self.lock:
+            if not self.playlist:
+                curr_title = "در انتظار موزیک"
+                next_title = "ندارد"
+            else:
+                idx = self.current_index % len(self.playlist)
+                curr_track = self.playlist[idx]
+                curr_title = curr_track.get("title", f"قطعه {idx + 1}")
+                next_idx = (idx + 1) % len(self.playlist)
+                next_track = self.playlist[next_idx]
+                next_title = next_track.get("title", f"قطعه {next_idx + 1}")
+
+        status_text = f"در حال پخش: {curr_title} | بعدی: {next_title}"
+        print(f"[Radio] Updating player title: {status_text}", flush=True)
+        try:
+            self.doChangeStatus(0, status_text)
+            self.diag.append(f"TITLE:{curr_title[:8]}")
+        except Exception as e:
+            print(f"[Radio] doChangeStatus error: {e}", flush=True)
 
     def send_chat(self, text):
         if not self.joined:
@@ -2659,7 +2683,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 ok = self.startStreamingMediaFileToChannel(track["path"], None)
             if ok:
                 self.is_streaming = True
-                self.send_chat(f"🎵 در حال پخش ({self.current_index + 1}/{len(self.playlist)}):\n{track['title']}")
+                self.update_player_title()
             else:
                 print(f"[Radio] Failed to stream: {track['path']}", flush=True)
                 time.sleep(2)
@@ -2671,16 +2695,12 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if not self.playlist:
             return
         next_idx = (self.current_index + 1) % len(self.playlist)
-        if admin_name:
-            self.send_chat(f"⏭ تعویض آهنگ توسط {admin_name}")
         self.play_track(next_idx)
 
     def play_prev(self, admin_name=None):
         if not self.playlist:
             return
         prev_idx = (self.current_index - 1) % len(self.playlist)
-        if admin_name:
-            self.send_chat(f"⏮ بازگشت به آهنگ قبلی توسط {admin_name}")
         self.play_track(prev_idx)
 
     def set_volume(self, percent, admin_name=None):
@@ -2769,7 +2789,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
-            self.send_chat("📻 radio kaafehdoosti روشن شد و آماده پخش است.")
+            self.update_player_title()
             if self.playlist and not self.is_streaming:
                 threading.Thread(target=self.play_track, args=(0,), daemon=True).start()
 
