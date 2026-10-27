@@ -2749,7 +2749,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.current_track = None
         self.last_update_id = 0
         self.restart_requested = False
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
         self.voice_player = VoicePlayer(self)
