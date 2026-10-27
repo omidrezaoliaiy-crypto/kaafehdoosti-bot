@@ -2657,7 +2657,9 @@ class VoicePlayer:
                 ab.uSampleIndex = sample_index
                 sample_index += 960
 
-                self.bot.insertAudioBlock(ab)
+                ins_ok = self.bot.insertAudioBlock(ab)
+                if pos == chunk_size:
+                    self.bot.diag.append(f"FIRST_INS:{ins_ok}")
 
                 next_time += 0.020
                 sleep_time = next_time - time.perf_counter()
@@ -3146,6 +3148,58 @@ def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/probe_voice":
+                b = global_radio_bot
+                if not b:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"No bot")
+                    return
+                chan = b.getChannel(RADIO_CHAN_ID)
+                opus = getattr(chan.audiocodec, "opus", None)
+                res = {
+                    "flags": hex(b.getFlags()),
+                    "chan_codec": chan.audiocodec.nCodec,
+                    "opus_sr": getattr(opus, "nSampleRate", 0),
+                    "opus_ch": getattr(opus, "nChannels", 0),
+                    "opus_br": getattr(opus, "nBitrate", 0),
+                    "diag": b.diag[-10:],
+                    "is_streaming": b.is_streaming,
+                }
+                dev_ok = b.initSoundInputDevice(1978)
+                tx_ok = b.enableVoiceTransmission(True)
+                res["dev_ok"] = dev_ok
+                res["tx_ok"] = tx_ok
+                
+                # Test inserting audio block
+                ab = TeamTalk5.AudioBlock()
+                ab.nStreamID = 0
+                ab.nSampleRate = 48000
+                ab.nChannels = 2
+                ab.nSamples = 960
+                ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
+                raw_data = bytes(3840)
+                buf_type = ctypes.c_byte * 3840
+                raw_buf = buf_type.from_buffer_copy(raw_data)
+                ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+                res["ins_stereo_960"] = b.insertAudioBlock(ab)
+                
+                ab.nSamples = 1920
+                res["ins_stereo_1920"] = b.insertAudioBlock(ab)
+                
+                ab.nChannels = 1
+                ab.nSamples = 960
+                raw_data_mono = bytes(1920)
+                buf_type_mono = ctypes.c_byte * 1920
+                raw_buf_mono = buf_type_mono.from_buffer_copy(raw_data_mono)
+                ab.lpRawAudio = ctypes.cast(raw_buf_mono, ctypes.c_void_p)
+                res["ins_mono_960"] = b.insertAudioBlock(ab)
+                
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                return
             if self.path == "/radio_status":
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain; charset=utf-8")
