@@ -1085,8 +1085,9 @@ def handle_message(msg):
                  phone=target_phone if target_phone else "",
                  persian_name=target_pname if target_pname else "")
         
+        send_message(chat_id, f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.")
+        time.sleep(0.5)
         step2_text = (
-            f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.\n\n"
             "مرحله دوم (ارسال ویس درخواست بازیابی):\n"
             "لطفاً یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
             "۱. خودتان را کامل معرفی کنید (نام و نام خانوادگی، شهر و سن)\n"
@@ -1104,11 +1105,9 @@ def handle_message(msg):
         voice_file_id = voice["file_id"]
         set_user(chat_id, step="RECOVER_WAIT_ADMIN", voice_file_id=voice_file_id)
         
-        send_message(
-            chat_id,
-            "درخواست بازیابی حساب شما به همراه ویس برای مدیریت سرور کافه دوستی ارسال شد ⏳\n\n"
-            "پس از بررسی و تایید توسط مدیریت، اطلاعات ورود جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد."
-        )
+        send_message(chat_id, "درخواست بازیابی حساب شما به همراه ویس دریافت شد ✅")
+        time.sleep(0.5)
+        send_message(chat_id, "اطلاعات برای مدیریت سرور کافه دوستی ارسال شد. پس از بررسی و تایید توسط مدیریت، مشخصات جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد.")
         
         tg_user = msg.get("from", {})
         tg_uname = f"@{tg_user.get('username')}" if tg_user.get("username") else "ندارد"
@@ -1170,12 +1169,13 @@ def handle_message(msg):
             return
 
         set_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
-        msg_text = (
+        confirm_name_msg = (
             f"نام فارسی شما: {persian_name}\n"
-            f"نام کاربری انگلیسی پیشنهادی شما: {username}\n\n"
-            "حالا لطفا شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:"
+            f"نام کاربری انگلیسی پیشنهادی شما: {username} ✅"
         )
-        send_message(chat_id, msg_text)
+        send_message(chat_id, confirm_name_msg)
+        time.sleep(0.5)
+        send_message(chat_id, "حالا لطفاً شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:")
         return
     
     if step == "WAIT_PHONE":
@@ -1223,10 +1223,11 @@ def handle_message(msg):
             return
         
         set_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
+        send_message(chat_id, f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅")
+        time.sleep(0.5)
         voice_prompt = (
-            f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅\n\n"
             "مرحله پایانی (ویس معرفی):\n"
-            "لطفا یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "لطفاً یک پیام صوتی (ویس) درون تلگرام ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
             "۱. نام و نام خانوادگی\n"
             "۲. محل سکونت (شهر یا استان)\n"
             "۳. سن\n"
@@ -1244,7 +1245,9 @@ def handle_message(msg):
         voice_file_id = voice["file_id"]
         set_user(chat_id, step="PENDING_ADMIN", voice_file_id=voice_file_id)
         
-        send_message(chat_id, "ویس و پرونده معرفی شما با موفقیت دریافت شد ✅\nاطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید، نتیجه به شما اعلام خواهد شد.")
+        send_message(chat_id, "ویس و پرونده معرفی شما با موفقیت دریافت شد ✅")
+        time.sleep(0.5)
+        send_message(chat_id, "اطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید توسط مدیریت، نتیجه در همین‌جا به شما اعلام خواهد شد.")
         
         user_info = get_user(chat_id)
         tg_user = msg.get("from", {})
@@ -1419,7 +1422,9 @@ def handle_callback_query(cq):
             return
         
         set_user(from_user, step="WAIT_NAME")
-        send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅\n\nلطفا نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
+        send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅")
+        time.sleep(0.5)
+        send_message(from_user, "لطفاً نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
         return
 
     # ارسال مجدد مشخصات به کاربر تلگرام
@@ -1470,19 +1475,13 @@ def handle_callback_query(cq):
         
         set_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        updated_caption = (
-            "🔔 درخواست عضویت در کافه دوستی (تلگرام):\n\n"
-            f"👤 نام فارسی: {user_info['persian_name']}\n"
-            f"🔤 نام کاربری: {username}\n"
-            f"📱 شماره موبایل: {phone}\n\n"
-            "وضعیت: تایید شد و یوزر در سرور ساخته شد ✅"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"✅ تایید شد: حساب کاربری «{user_info['persian_name']}» (نام کاربری: {username} | تلفن: {phone}) با موفقیت ساخته شد.")
         
         delivery_keyboard = {
             "inline_keyboard": [
@@ -1517,17 +1516,13 @@ def handle_callback_query(cq):
         persian_name = user_info['persian_name'] if user_info else 'کاربر'
         set_user(target_chat_id, step="REJECTED")
         
-        updated_caption = (
-            "🔔 درخواست عضویت در کافه دوستی (تلگرام):\n\n"
-            f"👤 نام فارسی: {persian_name}\n\n"
-            "وضعیت: این درخواست توسط مدیریت رد شد ❌"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"❌ رد شد: درخواست عضویت تلگرام برای «{persian_name}» (نام کاربری پیشنهادی: {user_info.get('username', '')}) توسط مدیریت رد شد.")
         
         rejection_msg = (
             "درود و احترام؛\n\n"
@@ -1559,18 +1554,13 @@ def handle_callback_query(cq):
             
         set_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        updated_caption = (
-            "🔄 درخواست بازیابی حساب کاربری در کافه دوستی (تلگرام):\n\n"
-            f"🔤 نام کاربری: {username}\n"
-            f"📱 شماره تلفن: {phone if phone else 'ثبت‌نشده'}\n\n"
-            "وضعیت: تایید شد و اطلاعات جدید حساب به متقاضی تحویل داده شد ✅"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"✅ تایید شد: بازیابی حساب کاربری تلگرام برای «{username}» (نام: {persian_name} | تلفن: {phone if phone else 'ثبت‌نشده'}) انجام و مشخصات جدید ارسال شد.")
         
         send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
         send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
@@ -1588,14 +1578,17 @@ def handle_callback_query(cq):
     # رد درخواست بازیابی تلگرام توسط مدیر
     if data.startswith("rej_rec_") and not data.startswith("rej_rec_sp_"):
         target_chat_id = int(data.split("_")[-1])
+        user_info = get_user(target_chat_id)
+        uname = user_info.get("username", str(target_chat_id)) if user_info else str(target_chat_id)
         set_user(target_chat_id, step="REJECTED")
         
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": "🔄 درخواست بازیابی حساب کاربری (تلگرام):\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"❌ رد شد: درخواست بازیابی حساب کاربری تلگرام برای «{uname}» توسط مدیریت رد شد.")
         
         rejection_msg = (
             "درود و احترام؛\n\n"
@@ -1639,20 +1632,13 @@ def handle_callback_query(cq):
             
         set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        updated_caption = (
-            "🔔 درخواست عضویت از طریق سروش پلاس 📱:\n\n"
-            f"👤 نام فارسی: {persian_name}\n"
-            f"🔤 نام کاربری: {username}\n"
-            f"📱 شماره موبایل: {phone}\n"
-            f"💬 شناسه سروش: {target_chat_id}\n\n"
-            "وضعیت: تایید شد و یوزر در سروش تحویل داده شد ✅"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"✅ تایید شد: حساب کاربری متقاضی سروش «{persian_name}» (نام کاربری: {username} | تلفن: {phone}) ساخته و در سروش ارسال شد.")
         
         # ارسال مشخصات، فایل tt و قوانین به کاربر در سروش
         splus_send_message(target_chat_id, "🎉 تبریک! حساب کاربری شما در سرور تیم‌تاک کافه دوستی توسط مدیریت تایید و ساخته شد.")
@@ -1675,18 +1661,13 @@ def handle_callback_query(cq):
         persian_name = user_info['persian_name'] if user_info else 'کاربر'
         set_splus_user(target_chat_id, step="REJECTED")
         
-        updated_caption = (
-            "🔔 درخواست عضویت از طریق سروش پلاس 📱:\n\n"
-            f"👤 نام فارسی: {persian_name}\n"
-            f"💬 شناسه سروش: {target_chat_id}\n\n"
-            "وضعیت: این درخواست توسط مدیریت رد شد ❌"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"❌ رد شد: درخواست عضویت متقاضی سروش «{persian_name}» (شناسه: {target_chat_id}) توسط مدیریت رد شد.")
         
         rejection_msg = (
             "درود و احترام؛\n\n"
@@ -1719,19 +1700,13 @@ def handle_callback_query(cq):
             
         set_splus_user(target_chat_id, step="COMPLETED", password=password_30)
         
-        updated_caption = (
-            "🔄 درخواست بازیابی حساب کاربری از طریق سروش پلاس 📱:\n\n"
-            f"🔤 نام کاربری: {username}\n"
-            f"📱 شماره تلفن: {phone if phone else 'ثبت‌نشده'}\n"
-            f"💬 شناسه سروش: {target_chat_id}\n\n"
-            "وضعیت: تایید شد و اطلاعات جدید حساب در سروش به متقاضی تحویل داده شد ✅"
-        )
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": updated_caption,
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"✅ تایید شد: بازیابی حساب کاربری متقاضی سروش «{username}» (نام: {persian_name}) تایید و مشخصات در سروش تحویل داده شد.")
         
         splus_send_message(target_chat_id, "🎉 تبریک! درخواست بازیابی حساب کاربری شما توسط مدیریت تایید شد.\n\nمشخصات اتصال جدید شما به سرور کافه دوستی:")
         splus_send_message(target_chat_id, f"مشخصات سرور کافه دوستی ☕️\n\nآدرس سرور:\n{TT_HOST}\nپورت:\n{TT_PORT}")
@@ -1752,12 +1727,13 @@ def handle_callback_query(cq):
         target_chat_id = int(data.split("_")[-1])
         set_splus_user(target_chat_id, step="REJECTED")
         
-        tg_request("editMessageCaption", {
+        # پاک نشدن اطلاعات روی ویس: فقط حذف دکمه‌ها و ارسال پیام وضعیت جداگانه
+        tg_request("editMessageReplyMarkup", {
             "chat_id": chat_id,
             "message_id": message_id,
-            "caption": "🔄 درخواست بازیابی حساب کاربری سروش:\n\nوضعیت: این درخواست توسط مدیریت رد شد ❌",
             "reply_markup": {"inline_keyboard": []}
         })
+        send_message(ADMIN_CHAT_ID, f"❌ رد شد: درخواست بازیابی متقاضی سروش (شناسه: {target_chat_id}) توسط مدیریت رد شد.")
         
         rejection_msg = (
             "درود و احترام؛\n\n"
@@ -1926,8 +1902,9 @@ def handle_splus_message(msg):
                        phone=target_phone if target_phone else "",
                        persian_name=target_pname if target_pname else "")
         
+        splus_send_message(chat_id, f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.")
+        time.sleep(0.5)
         step2_text = (
-            f"✅ حساب کاربری «{target_uname}» در سرور کافه دوستی شناسایی شد.\n\n"
             "مرحله دوم (ارسال ویس درخواست بازیابی):\n"
             "لطفاً یک پیام صوتی (ویس) درون سروش ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
             "۱. خودتان را کامل معرفی کنید (نام و نام خانوادگی، شهر و سن)\n"
@@ -1946,11 +1923,9 @@ def handle_splus_message(msg):
         voice_file_id = voice["file_id"]
         set_splus_user(chat_id, step="RECOVER_WAIT_ADMIN", voice_file_id=voice_file_id)
         
-        splus_send_message(
-            chat_id,
-            "درخواست بازیابی حساب شما به همراه ویس برای مدیریت سرور کافه دوستی ارسال شد ⏳\n\n"
-            "پس از بررسی و تایید توسط مدیریت، اطلاعات ورود جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد."
-        )
+        splus_send_message(chat_id, "درخواست بازیابی حساب شما به همراه ویس دریافت شد ✅")
+        time.sleep(0.5)
+        splus_send_message(chat_id, "اطلاعات برای مدیریت سرور کافه دوستی ارسال شد. پس از بررسی و تایید توسط مدیریت، مشخصات جدید و قوانین سرور در همین‌جا برای شما ارسال خواهد شد.")
         
         target_uname = user.get("username", "نامشخص")
         target_phone = user.get("phone", "ثبت‌نشده")
@@ -2019,12 +1994,13 @@ def handle_splus_message(msg):
             return
 
         set_splus_user(chat_id, step="WAIT_PHONE", persian_name=persian_name, username=username)
-        msg_text = (
+        confirm_name_msg = (
             f"نام فارسی شما: {persian_name}\n"
-            f"نام کاربری انگلیسی پیشنهادی شما: {username}\n\n"
-            "حالا لطفا شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:"
+            f"نام کاربری انگلیسی پیشنهادی شما: {username} ✅"
         )
-        splus_send_message(chat_id, msg_text)
+        splus_send_message(chat_id, confirm_name_msg)
+        time.sleep(0.5)
+        splus_send_message(chat_id, "حالا لطفاً شماره موبایل خود را به صورت ۱۱ رقمی (مانند: ۰۹۱۲۳۴۵۶۷۸۹) وارد کنید:")
         return
         
     # ثبت نام در سروش: دریافت شماره موبایل
@@ -2073,10 +2049,11 @@ def handle_splus_message(msg):
             return
         
         set_splus_user(chat_id, step="WAIT_VOICE", phone=clean_phone)
+        splus_send_message(chat_id, f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅")
+        time.sleep(0.5)
         voice_prompt = (
-            f"شماره موبایل شما ({clean_phone}) با موفقیت ثبت شد ✅\n\n"
             "مرحله پایانی (ویس معرفی):\n"
-            "لطفا یک پیام صوتی (ویس) درون سروش ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
+            "لطفاً یک پیام صوتی (ویس) درون سروش ضبط و ارسال کنید و در آن موارد زیر را بگویید:\n"
             "۱. نام و نام خانوادگی\n"
             "۲. محل سکونت (شهر یا استان)\n"
             "۳. سن\n"
@@ -2095,11 +2072,9 @@ def handle_splus_message(msg):
         voice_file_id = voice["file_id"]
         set_splus_user(chat_id, step="PENDING_ADMIN", voice_file_id=voice_file_id)
         
-        splus_send_message(
-            chat_id,
-            "ویس و پرونده معرفی شما با موفقیت دریافت شد ✅\n"
-            "اطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید توسط مدیریت، نتیجه در همین‌جا به شما اعلام خواهد شد."
-        )
+        splus_send_message(chat_id, "ویس و پرونده معرفی شما با موفقیت دریافت شد ✅")
+        time.sleep(0.5)
+        splus_send_message(chat_id, "اطلاعات شما برای مدیریت سرور کافه دوستی ارسال گردید. به محض بررسی و تایید توسط مدیریت، نتیجه در همین‌جا به شما اعلام خواهد شد.")
         
         user_info = get_splus_user(chat_id)
         caption = (
@@ -2384,7 +2359,9 @@ def handle_splus_callback_query(cq):
             return
         
         set_splus_user(from_user, step="WAIT_NAME")
-        splus_send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅\n\nلطفا نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
+        splus_send_message(from_user, "عضویت شما در کانال کافه دوستی تایید شد ✅")
+        time.sleep(0.5)
+        splus_send_message(from_user, "لطفاً نام و نام خانوادگی خود را به زبان فارسی (مانند: امید علیایی) بنویسید و ارسال کنید:")
         return
 
     # ارسال مجدد مشخصات به کاربر سروش
