@@ -427,7 +427,7 @@ def run_inactivity_checker():
         time.sleep(86400) # هر ۲۴ ساعت یک بار بررسی می‌کند
 
 def monitor_teamtalk_activity():
-    """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران در کانال مدیریت (chanid=13)"""
+    """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران در کانال مدیریت (chanid=28)"""
     time.sleep(5)
     print("شروع به کار ربات ناظر کافه دوستی در کانال مدیریت...", flush=True)
     while True:
@@ -440,8 +440,8 @@ def monitor_teamtalk_activity():
             login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
             s.sendall(login_cmd.encode('utf-8'))
             time.sleep(1)
-            # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=13) با پسورد 12123123
-            s.sendall(b'join chanid=13 password="12123123"\r\n')
+            # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=28) با پسورد 12123123
+            s.sendall(b'join chanid=28 password="12123123"\r\n')
             
             last_ping = time.time()
             buffer = ""
@@ -2482,7 +2482,7 @@ RADIO_TT_PORT = 10333
 RADIO_TT_USER = "radio kaafehdoosti"
 RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
 RADIO_TT_NICK = "radio kaafehdoosti"
-RADIO_CHAN_ID = 15
+RADIO_CHAN_ID = 2
 RADIO_ADMINS = {"omid.o", "yalda"}
 
 RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
@@ -2507,7 +2507,7 @@ def get_radio_status():
         f"فلگ کلاینت: {hex(flags)}",
         f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
         f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
-        f"حضور در اتاق ۱۵ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
+        f"حضور در اتاق ۲ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
         f"وضعیت پخش موزیک: {'در حال پخش' if b.is_streaming else 'متوقف'}",
         f"وضعیت تایتل: {'مخفی' if getattr(b, 'title_hidden', False) else 'نمایان'}",
         f"میزان صدا: {b.volume_percent} درصد",
