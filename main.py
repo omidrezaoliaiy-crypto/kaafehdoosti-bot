@@ -2480,7 +2480,7 @@ RADIO_TT_HOST = "185.26.33.57"
 RADIO_TT_PORT = 10333
 RADIO_TT_USER = "radio kaafehdoosti"
 RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
-RADIO_TT_NICK = "رادیو کافه دوستی"
+RADIO_TT_NICK = "radio kaafehdoosti"
 RADIO_CHAN_ID = 15
 RADIO_ADMINS = {"omid.o", "yalda"}
 
@@ -2645,7 +2645,18 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         try:
             self.stopStreamingMediaFileToChannel()
             time.sleep(0.3)
-            ok = self.startStreamingMediaFileToChannel(track["path"], None)
+            gain = int((self.volume_percent / 100.0) * 1000)
+            mfp = TeamTalk5.MediaFilePlayback()
+            mfp.uOffsetMSec = 0
+            mfp.bPaused = False
+            mfp.audioPreprocessor.nPreprocessor = TeamTalk5.AudioPreprocessorType.TEAMTALK_AUDIOPREPROCESSOR
+            mfp.audioPreprocessor.u.ttpreprocessor.nGainLevel = gain
+            mfp.audioPreprocessor.u.ttpreprocessor.bMuteLeftSpeaker = False
+            mfp.audioPreprocessor.u.ttpreprocessor.bMuteRightSpeaker = False
+            
+            ok = TeamTalk5._StartStreamingMediaFileToChannelEx(self._tt, track["path"], TeamTalk5.byref(mfp), None)
+            if not ok:
+                ok = self.startStreamingMediaFileToChannel(track["path"], None)
             if ok:
                 self.is_streaming = True
                 self.send_chat(f"🎵 در حال پخش ({self.current_index + 1}/{len(self.playlist)}):\n{track['title']}")
@@ -2673,17 +2684,30 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.play_track(prev_idx)
 
     def set_volume(self, percent, admin_name=None):
-        percent = max(0, min(100, percent))
+        percent = max(0, min(150, percent))
         self.volume_percent = percent
-        gain = int((percent / 100.0) * 16384)
+        gain = int((percent / 100.0) * 1000)
         try:
+            mfp = TeamTalk5.MediaFilePlayback()
+            mfp.uOffsetMSec = TeamTalk5.TT_MEDIAPLAYBACK_OFFSET_IGNORE
+            mfp.bPaused = False
+            mfp.audioPreprocessor.nPreprocessor = TeamTalk5.AudioPreprocessorType.TEAMTALK_AUDIOPREPROCESSOR
+            mfp.audioPreprocessor.u.ttpreprocessor.nGainLevel = gain
+            mfp.audioPreprocessor.u.ttpreprocessor.bMuteLeftSpeaker = False
+            mfp.audioPreprocessor.u.ttpreprocessor.bMuteRightSpeaker = False
+            
+            res_update = TeamTalk5._UpdateStreamingMediaFileToChannel(self._tt, TeamTalk5.byref(mfp), None)
             TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
+            print(f"[Radio] set_volume: {percent}%, gain: {gain}, updated: {res_update}", flush=True)
+            self.diag.append(f"VOL:{percent}:{res_update}")
+            
             msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد."
             if admin_name:
                 msg += f" (توسط {admin_name})"
             self.send_chat(msg)
         except Exception as e:
             print(f"[Radio] set_volume error: {e}", flush=True)
+            self.diag.append(f"VOL_ERR:{e}")
 
     def upload_current_to_channel(self, requester_name):
         if not self.current_track or not os.path.exists(self.current_track["path"]):
@@ -2735,6 +2759,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         print(f"[Radio] Logged in! MyID: {my_id}", flush=True)
         self.logged_in = True
         self.my_user_id = my_id
+        self.doChangeNickname(RADIO_TT_NICK)
         res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
         self.diag.append(f"JOIN_CMD:{res}")
 
@@ -2744,7 +2769,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
-            self.send_chat("📻 رادیو کافه دوستی روشن شد و آماده پخش است.")
+            self.send_chat("📻 radio kaafehdoosti روشن شد و آماده پخش است.")
             if self.playlist and not self.is_streaming:
                 threading.Thread(target=self.play_track, args=(0,), daemon=True).start()
 
@@ -2782,8 +2807,17 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 threading.Thread(target=self.play_next, args=(sender,), daemon=True).start()
             elif msg_text in ["b", "prev", "back", "قبلی"]:
                 threading.Thread(target=self.play_prev, args=(sender,), daemon=True).start()
-            elif msg_text.startswith("v"):
-                part = msg_text[1:].strip()
+            elif any(msg_text.startswith(p) for p in ["v", "vol", "volume", "صدا"]):
+                part = msg_text
+                for prefix in ["volume", "vol", "صدا", "v"]:
+                    if part.startswith(prefix):
+                        part = part[len(prefix):].strip()
+                        break
+                persian_digits = "۰۱۲۳۴۵۶۷۸۹"
+                arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+                for i in range(10):
+                    part = part.replace(persian_digits[i], str(i)).replace(arabic_digits[i], str(i))
+                part = part.replace("%", "").strip()
                 if part.isdigit():
                     vol = int(part)
                     self.set_volume(vol, sender)
