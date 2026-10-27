@@ -2547,6 +2547,127 @@ def save_radio_state(state):
     except Exception as e:
         print(f"[Radio] Save state err: {e}", flush=True)
 
+class VoicePlayer:
+    def __init__(self, bot):
+        self.bot = bot
+        self.stop_event = threading.Event()
+        self.thread = None
+        self.sample_rate = 48000
+        self.channels = 2
+
+    def play(self, track_path):
+        self.stop()
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._play_worker, args=(track_path,), daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=0.8)
+
+    def _play_worker(self, track_path):
+        try:
+            raw_pcm = None
+            try:
+                import miniaudio
+                decoded = miniaudio.decode_file(
+                    track_path,
+                    output_format=miniaudio.SampleFormat.SIGNED16,
+                    nchannels=self.channels,
+                    sample_rate=self.sample_rate
+                )
+                raw_pcm = decoded.samples.tobytes()
+            except Exception as e:
+                print(f"[Radio] miniaudio decode err: {e}", flush=True)
+
+            if not raw_pcm:
+                try:
+                    import subprocess
+                    cmd = ["ffmpeg", "-v", "quiet", "-i", track_path, "-f", "s16le", "-ar", str(self.sample_rate), "-ac", str(self.channels), "-"]
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    raw_pcm = proc.stdout.read()
+                except Exception as e:
+                    print(f"[Radio] ffmpeg decode err: {e}", flush=True)
+
+            if not raw_pcm or len(raw_pcm) < 3840:
+                print("[Radio] Direct Voice: Could not decode to PCM. Fallback to media file stream...", flush=True)
+                self.bot.stream_media_file_fallback(track_path)
+                return
+
+            print(f"[Radio] Direct Voice transmission started: {os.path.basename(track_path)} ({len(raw_pcm)} bytes PCM)", flush=True)
+            self.bot.diag.append("VOICE_TX_START")
+            
+            try:
+                self.bot.initSoundInputDevice(1978)
+            except Exception as e:
+                print(f"[Radio] initSoundInputDevice err: {e}", flush=True)
+            try:
+                self.bot.enableVoiceTransmission(True)
+            except Exception as e:
+                print(f"[Radio] enableVoiceTransmission err: {e}", flush=True)
+                
+            self.bot.is_streaming = True
+            self.bot.update_player_title()
+
+            chunk_size = 3840  # 960 samples * 2 channels * 2 bytes = 20ms at 48kHz
+            total_len = len(raw_pcm)
+            pos = 0
+            sample_index = 0
+
+            buf_type = ctypes.c_byte * chunk_size
+            ab = TeamTalk5.AudioBlock()
+            ab.nStreamID = 0
+            ab.nSampleRate = self.sample_rate
+            ab.nChannels = self.channels
+            ab.nSamples = 960
+            ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
+
+            import audioop
+            next_time = time.perf_counter()
+
+            while pos < total_len and not self.stop_event.is_set():
+                chunk = raw_pcm[pos:pos + chunk_size]
+                pos += chunk_size
+                if len(chunk) < chunk_size:
+                    chunk += bytes(chunk_size - len(chunk))
+
+                vol = getattr(self.bot, "volume_percent", 100)
+                if vol != 100:
+                    try:
+                        chunk = audioop.mul(chunk, 2, max(0.0, min(1.5, vol / 100.0)))
+                    except Exception:
+                        pass
+
+                raw_buf = buf_type.from_buffer_copy(chunk)
+                ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+                ab.uSampleIndex = sample_index
+                sample_index += 960
+
+                self.bot.insertAudioBlock(ab)
+
+                next_time += 0.020
+                sleep_time = next_time - time.perf_counter()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                elif sleep_time < -0.1:
+                    next_time = time.perf_counter()
+
+            if not self.stop_event.is_set():
+                print("[Radio] Direct Voice track finished. Playing next...", flush=True)
+                self.bot.is_streaming = False
+                try:
+                    self.bot.enableVoiceTransmission(False)
+                except Exception:
+                    pass
+                self.bot.play_next()
+
+        except Exception as e:
+            print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
+            self.bot.diag.append(f"VOICE_ERR:{type(e).__name__}")
+            if not self.stop_event.is_set():
+                self.bot.play_next()
+
 class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def __init__(self):
         super().__init__()
@@ -2569,6 +2690,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.lock = threading.Lock()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
+        self.voice_player = VoicePlayer(self)
 
     def persist_state(self):
         try:
@@ -2732,48 +2854,43 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.current_track = track
             self.persist_state()
 
-        print(f"[Radio] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
+        print(f"[Radio] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
+        try:
+            self.stop_all_playback()
+            time.sleep(0.2)
+            self.voice_player.play(track["path"])
+        except Exception as e:
+            print(f"[Radio] Playback launch error: {e}", flush=True)
+            self.diag.append(f"PLAY_ERR:{type(e).__name__}")
+
+    def stop_all_playback(self):
+        try:
+            self.voice_player.stop()
+        except Exception:
+            pass
         try:
             self.stopStreamingMediaFileToChannel()
-            time.sleep(0.3)
-            gain = int((self.volume_percent / 100.0) * 1000)
-            mfp = TeamTalk5.MediaFilePlayback()
-            mfp.uOffsetMSec = 0
-            mfp.bPaused = False
-            mfp.audioPreprocessor.nPreprocessor = TeamTalk5.AudioPreprocessorType.TEAMTALK_AUDIOPREPROCESSOR
-            mfp.audioPreprocessor.u.ttpreprocessor.nGainLevel = gain
-            mfp.audioPreprocessor.u.ttpreprocessor.bMuteLeftSpeaker = False
-            mfp.audioPreprocessor.u.ttpreprocessor.bMuteRightSpeaker = False
-            
-            ok = False
-            gain = int((self.volume_percent / 100.0) * 1000)
-            try:
-                ok = TeamTalk5._StartStreamingMediaFileToChannelEx(self._tt, track["path"], TeamTalk5.byref(mfp), None)
-            except Exception as e:
-                print(f"[Radio] StartStreamingEx err: {e}", flush=True)
-                self.diag.append(f"EX_STREX:{e}")
+        except Exception:
+            pass
+        try:
+            self.enableVoiceTransmission(False)
+        except Exception:
+            pass
+        self.is_streaming = False
 
-            if not ok:
-                try:
-                    ok = self.startStreamingMediaFileToChannel(track["path"], None)
-                    if ok:
-                        TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
-                except Exception as e:
-                    print(f"[Radio] startStreaming err: {e}", flush=True)
-                    self.diag.append(f"EX_STR:{e}")
-
-            self.diag.append(f"STR:{ok}:{self.current_index}")
+    def stream_media_file_fallback(self, track_path):
+        try:
+            ok = self.startStreamingMediaFileToChannel(track_path, None)
+            self.diag.append(f"FALLBACK_STR:{ok}")
             if ok:
                 self.is_streaming = True
                 self.update_player_title()
             else:
-                self.is_streaming = False
-                print(f"[Radio] Failed to stream: {track['path']}", flush=True)
                 time.sleep(2)
                 self.play_next()
         except Exception as e:
-            print(f"[Radio] Playback error: {e}", flush=True)
-            self.diag.append(f"PLAY_ERR:{type(e).__name__}")
+            print(f"[Radio] stream_media_file_fallback err: {e}", flush=True)
+            self.play_next()
 
     def play_next(self, admin_name=None):
         if not self.playlist:
@@ -3001,7 +3118,7 @@ def start_radio_worker():
 
             print("[Radio] Restart requested. Disconnecting and restarting bot instance...", flush=True)
             try:
-                bot.stopStreamingMediaFileToChannel()
+                bot.stop_all_playback()
                 time.sleep(0.5)
                 bot.disconnect()
                 time.sleep(2)
