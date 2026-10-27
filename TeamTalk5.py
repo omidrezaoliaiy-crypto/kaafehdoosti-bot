@@ -1099,6 +1099,12 @@ def function_factory(func, signature):
         func.argtypes = signature[1]
     except IndexError:
         pass
+    if sys.platform != 'win32':
+        orig_func = func
+        def wrapper(*args):
+            new_args = [a.encode('utf-8') if isinstance(a, str) else a for a in args]
+            return orig_func(*new_args)
+        return wrapper
     return func
 
 _GetVersion = function_factory(dll.TT_GetVersion, [TTCHAR_P])
