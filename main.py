@@ -284,7 +284,7 @@ def get_tt_existing_cached():
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بررسی لیست کاربران" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         
         time.sleep(1.5)
@@ -365,7 +365,7 @@ def delete_tt_account_server(username):
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="پاکسازی کاربر غایب" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
@@ -812,7 +812,7 @@ def create_teamtalk_account(username, password, phone):
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
         
-        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ساخت حساب کاربری" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         resp = s.recv(8192).decode('utf-8', errors='ignore')
@@ -843,7 +843,7 @@ def reset_teamtalk_account(username, password, phone=""):
         s.settimeout(10)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ربات یوزر دهی" protocol="5.13" clientname="TeamTalk5"\r\n'
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بازیابی رمز کاربر" protocol="5.13" clientname="TeamTalk5"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
