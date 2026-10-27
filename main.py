@@ -2508,6 +2508,7 @@ def get_radio_status():
         f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
         f"حضور در اتاق ۱۵ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
         f"وضعیت پخش موزیک: {'در حال پخش' if b.is_streaming else 'متوقف'}",
+        f"وضعیت تایتل: {'مخفی' if getattr(b, 'title_hidden', False) else 'نمایان'}",
         f"میزان صدا: {b.volume_percent} درصد",
         f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
     ]
@@ -2532,6 +2533,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.current_track = None
         self.last_update_id = 0
         self.volume_percent = 100
+        self.restart_requested = False
+        self.title_hidden = False
         self.lock = threading.Lock()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
@@ -2639,11 +2642,15 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 next_track = self.playlist[next_idx]
                 next_title = next_track.get("title", f"قطعه {next_idx + 1}")
 
-        status_text = f"در حال پخش: {curr_title} | بعدی: {next_title}"
+        if getattr(self, "title_hidden", False):
+            status_text = ""
+        else:
+            status_text = f"در حال پخش: {curr_title} | بعدی: {next_title}"
+
         print(f"[Radio] Updating player title: {status_text}", flush=True)
         try:
             self.doChangeStatus(0, status_text)
-            self.diag.append(f"TITLE:{curr_title[:8]}")
+            self.diag.append(f"TITLE:{'HIDDEN' if getattr(self, 'title_hidden', False) else curr_title[:8]}")
         except Exception as e:
             print(f"[Radio] doChangeStatus error: {e}", flush=True)
 
@@ -2860,18 +2867,34 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 if part.isdigit():
                     vol = int(part)
                     self.set_volume(vol, sender)
+            elif msg_text in ["h", "تایتل", "hide"]:
+                self.title_hidden = not self.title_hidden
+                self.update_player_title()
+                if self.title_hidden:
+                    self.send_chat("🙈 تایتل پلیر مخفی شد.")
+                else:
+                    self.send_chat("👁 تایتل پلیر نمایش داده شد.")
+            elif msg_text in ["rc", "reconnect", "restart", "ریستارت"]:
+                self.send_chat("🔄 ربات در حال راه‌اندازی مجدد و ورود دوباره است...")
+                self.restart_requested = True
+            elif msg_text in ["rc full", "rc proc", "reboot"]:
+                self.send_chat("🔄 در حال راه‌اندازی کامل پروسه سرور...")
+                time.sleep(1)
+                os._exit(0)
             elif msg_text in ["help", "راهنما"]:
                 help_text = (
                     "📋 راهنمای دستورات رادیو کافه دوستی:\n"
-                    "• دستور dl یا دانلود: قرار دادن آهنگ فعلی در فایل‌های کانال (برای همه کاربران)\n"
+                    "• دستور dl یا دانلود: قرار دادن آهنگ فعلی در فایل‌های کانال (همه کاربران)\n"
                     "• دستور n یا بعدی: پخش آهنگ بعدی (مدیران)\n"
                     "• دستور b یا قبلی: پخش آهنگ قبلی (مدیران)\n"
-                    "• دستور v با عدد (مثل v 80): تنظیم بلندی صدا (مدیران)"
+                    "• دستور v با عدد (مثل v 80): تنظیم بلندی صدا (مدیران)\n"
+                    "• دستور h: مخفی کردن یا نمایش مجدد تایتل پلیر (مدیران)\n"
+                    "• دستور rc: راه‌اندازی مجدد و خروج و ورود دوباره ربات (مدیران)"
                 )
                 self.send_chat(help_text)
 
 def radio_telegram_sync_worker(bot):
-    while True:
+    while not getattr(bot, "restart_requested", False):
         try:
             bot.sync_telegram_playlist()
         except Exception as e:
@@ -2881,38 +2904,50 @@ def radio_telegram_sync_worker(bot):
 def start_radio_worker():
     global global_radio_bot
     print("شروع سرویس رادیو کافه دوستی...", flush=True)
-    try:
-        ensure_linux_tt_sdk()
-        bot = RadioMusicBot()
-        global_radio_bot = bot
-        bot.load_existing_cache()
-        
+    ensure_linux_tt_sdk()
+    while True:
         try:
-            bot.sync_telegram_playlist()
-        except Exception as e:
-            print(f"[Radio] Initial sync err: {e}", flush=True)
+            bot = RadioMusicBot()
+            global_radio_bot = bot
+            bot.load_existing_cache()
             
-        threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
-        
-        last_connect_attempt = 0
-        while True:
             try:
-                flags = bot.getFlags()
-                is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
-                if not is_connecting_or_connected and (time.time() - last_connect_attempt > 8):
-                    last_connect_attempt = time.time()
-                    print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
-                    bot.diag.append("DO_CONNECT")
-                    res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
-                    bot.diag.append(f"CONN_RES:{res}")
-                    print(f"[Radio] connect() called, returned: {res}", flush=True)
-                bot.runEventLoop(100)
+                bot.sync_telegram_playlist()
             except Exception as e:
-                bot.diag.append(f"EXC:{type(e).__name__}:{e}")
-                print(f"[Radio] Loop err: {e}", flush=True)
-                time.sleep(1)
-    except Exception as e:
-        print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
+                print(f"[Radio] Initial sync err: {e}", flush=True)
+                
+            threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
+            
+            last_connect_attempt = 0
+            while not getattr(bot, "restart_requested", False):
+                try:
+                    flags = bot.getFlags()
+                    is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
+                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 8):
+                        last_connect_attempt = time.time()
+                        print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
+                        bot.diag.append("DO_CONNECT")
+                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
+                        bot.diag.append(f"CONN_RES:{res}")
+                        print(f"[Radio] connect() called, returned: {res}", flush=True)
+                    bot.runEventLoop(100)
+                except Exception as e:
+                    bot.diag.append(f"EXC:{type(e).__name__}:{e}")
+                    print(f"[Radio] Loop err: {e}", flush=True)
+                    time.sleep(1)
+
+            print("[Radio] Restart requested. Disconnecting and restarting bot instance...", flush=True)
+            try:
+                bot.stopStreamingMediaFileToChannel()
+                time.sleep(0.5)
+                bot.disconnect()
+                time.sleep(2)
+            except Exception as e:
+                print(f"[Radio] Disconnect err during restart: {e}", flush=True)
+
+        except Exception as e:
+            print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
+            time.sleep(3)
 
 def run_health_server():
     port = int(os.environ.get("PORT", 10000))
