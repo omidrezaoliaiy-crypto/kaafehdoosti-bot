@@ -3328,19 +3328,23 @@ def run_health_server():
                     self.wfile.write(b"Bot not connected")
                     return
                 try:
-                    chans_raw = b.getServerChannels()
-                    users_raw = b.getServerUsers()
                     chans = []
-                    for c in chans_raw:
-                        chans.append({
-                            "nChannelID": c.nChannelID,
-                            "nParentID": c.nParentID,
-                            "szName": TeamTalk5.ttstr(c.szName),
-                            "szTopic": TeamTalk5.ttstr(c.szTopic),
-                            "uChannelType": c.uChannelType,
-                            "nDiskQuota": c.nDiskQuota,
-                            "nMaxUsers": c.nMaxUsers,
-                        })
+                    for cid in range(1, 40):
+                        try:
+                            c = b.getChannel(cid)
+                            if c.nChannelID == cid:
+                                chans.append({
+                                    "nChannelID": c.nChannelID,
+                                    "nParentID": c.nParentID,
+                                    "szName": TeamTalk5.ttstr(c.szName),
+                                    "szTopic": TeamTalk5.ttstr(c.szTopic),
+                                    "uChannelType": c.uChannelType,
+                                    "nDiskQuota": c.nDiskQuota,
+                                    "nMaxUsers": c.nMaxUsers,
+                                })
+                        except Exception:
+                            pass
+                    users_raw = b.getServerUsers()
                     users = []
                     for u in users_raw:
                         users.append({
