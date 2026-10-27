@@ -22,6 +22,7 @@ import threading
 import urllib.request
 import urllib.parse
 import urllib.error
+import ctypes
 
 # تنظیم اوپنر بدون پروکسی برای اطمینان از اتصال پایدار
 try:
@@ -2563,7 +2564,7 @@ class VoicePlayer:
 
     def stop(self):
         self.stop_event.set()
-        if self.thread and self.thread.is_alive():
+        if self.thread and self.thread.is_alive() and self.thread != threading.current_thread():
             self.thread.join(timeout=0.8)
 
     def _play_worker(self, track_path):
@@ -2660,13 +2661,13 @@ class VoicePlayer:
                     self.bot.enableVoiceTransmission(False)
                 except Exception:
                     pass
-                self.bot.play_next()
+                threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
             print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
             self.bot.diag.append(f"VOICE_ERR:{type(e).__name__}")
             if not self.stop_event.is_set():
-                self.bot.play_next()
+                threading.Thread(target=self.bot.play_next, daemon=True).start()
 
 class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def __init__(self):
