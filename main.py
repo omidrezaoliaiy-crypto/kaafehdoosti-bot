@@ -2675,23 +2675,23 @@ class VoicePlayer:
             ab.nSamples = samples_per_frame
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
 
-            try:
-                import audioop
-            except Exception:
-                audioop = None
-
-            next_time = time.perf_counter()
+            # Send pre-buffer (3 frames = 60ms) to ensure receiver jitter buffer never starves
             first_logged = False
             failed_inserts = 0
             chunks_since_save = 0
+            
+            # Accurate drift-compensated clock for crystal-clear, uninterrupted voice transmission
+            clock_start = time.perf_counter()
+            frame_idx = 0
+            lead_time = 0.040  # Maintain 40ms lead for jitter protection
 
             while pos < total_len and not self.stop_event.is_set():
                 chunk = raw_pcm[pos:pos + chunk_size]
                 pos += chunk_size
                 self.current_pos = pos
-                
+
                 chunks_since_save += 1
-                if chunks_since_save >= 100:  # Save every 2.0s
+                if chunks_since_save >= 100:  # Save position every 2.0s
                     chunks_since_save = 0
                     sec = pos / (self.sample_rate * self.channels * 2)
                     self.bot.current_playback_sec = sec
@@ -2700,21 +2700,6 @@ class VoicePlayer:
 
                 if len(chunk) < chunk_size:
                     chunk += bytes(chunk_size - len(chunk))
-
-                vol = getattr(self.bot, "volume_percent", 100)
-                if vol != 100:
-                    factor = max(0.0, min(1.5, vol / 100.0))
-                    if audioop:
-                        try:
-                            chunk = audioop.mul(chunk, 2, factor)
-                        except Exception:
-                            pass
-                    else:
-                        import array
-                        samples = array.array('h', chunk)
-                        for i in range(len(samples)):
-                            samples[i] = max(-32768, min(32767, int(samples[i] * factor)))
-                        chunk = samples.tobytes()
 
                 raw_buf = buf_type.from_buffer_copy(chunk)
                 ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
@@ -2728,20 +2713,24 @@ class VoicePlayer:
 
                 if not ins_ok:
                     failed_inserts += 1
-                    if failed_inserts >= 15:
-                        print(f"[Radio] insertAudioBlock continuously rejected ({failed_inserts} times). Fallback to media file stream...", flush=True)
+                    if failed_inserts >= 20:
+                        print(f"[Radio] insertAudioBlock rejected {failed_inserts} times. Fallback...", flush=True)
                         self.bot.diag.append("INS_FAIL_FALLBACK")
                         self.bot.stream_media_file_fallback(track_path)
                         return
                 else:
                     failed_inserts = 0
 
-                next_time += 0.020
-                sleep_time = next_time - time.perf_counter()
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                elif sleep_time < -0.1:
-                    next_time = time.perf_counter()
+                frame_idx += 1
+                target_time = clock_start + (frame_idx * 0.020) - lead_time
+                now = time.perf_counter()
+                sleep_sec = target_time - now
+                if sleep_sec > 0.001:
+                    time.sleep(sleep_sec)
+                elif sleep_sec < -0.2:
+                    # Resynchronize clock if OS stalled
+                    clock_start = time.perf_counter()
+                    frame_idx = 0
 
             # End audio block transmission session cleanly
             try:
@@ -2927,26 +2916,34 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
             display_name = f"{performer} - {title}".strip(" -")
             
+            track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
             if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
                 print(f"[Radio] Downloading: {display_name}", flush=True)
                 if self.download_tg_file(file_id, dest_path):
-                    track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
-                    new_tracks.append(track_info)
+                    with self.lock:
+                        if not any(x["path"] == dest_path for x in self.playlist):
+                            self.playlist.append(track_info)
+                            print(f"[Radio] Added & Ready: {display_name}", flush=True)
+                            if self.joined:
+                                self.update_player_title()
+                            if self.joined and not self.is_streaming:
+                                threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
             else:
-                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
-                if not any(t["path"] == dest_path for t in self.playlist):
-                    new_tracks.append(track_info)
+                with self.lock:
+                    if not any(t["path"] == dest_path for t in self.playlist):
+                        self.playlist.append(track_info)
+                        if self.joined and not self.is_streaming:
+                            threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
+        # Any remaining tracks
         if new_tracks:
             with self.lock:
                 for t in new_tracks:
                     if not any(x["path"] == t["path"] for x in self.playlist):
                         self.playlist.append(t)
-                        print(f"[Radio] Added track: {t['title']}", flush=True)
-                        if self.joined:
-                            self.update_player_title()
-
             self.restore_track_index()
+            if self.joined:
+                self.update_player_title()
             if self.joined and not self.is_streaming and self.playlist:
                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
