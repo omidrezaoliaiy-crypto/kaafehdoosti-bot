@@ -3108,17 +3108,20 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
 
     def onConnectFailed(self):
         self.diag.append("CON_FAILED")
-        print("[Radio] Connect failed!", flush=True)
+        print("[Radio] Connect failed! Recreating instance...", flush=True)
         self.connected = False
+        self.persist_state()
+        self.restart_requested = True
 
     def onConnectionLost(self):
         self.diag.append("CON_LOST")
-        print("[Radio] Connection lost! Preserving playback position...", flush=True)
+        print("[Radio] Connection lost! Preserving playback position and recreating instance...", flush=True)
         self.persist_state()
         self.connected = False
         self.logged_in = False
         self.joined = False
         self.is_streaming = False
+        self.restart_requested = True
 
     def onCmdMyselfLoggedIn(self, my_id, user_account):
         self.diag.append(f"LOGGED_IN:{my_id}")
@@ -3253,13 +3256,18 @@ def start_radio_worker():
                 try:
                     flags = bot.getFlags()
                     is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
-                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 8):
+                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 5):
                         last_connect_attempt = time.time()
                         print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
                         bot.diag.append("DO_CONNECT")
                         res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
                         bot.diag.append(f"CONN_RES:{res}")
                         print(f"[Radio] connect() called, returned: {res}", flush=True)
+                        if not res:
+                            print("[Radio] connect() returned 0 (instance closed). Recreating bot...", flush=True)
+                            bot.persist_state()
+                            bot.restart_requested = True
+                            break
                     bot.runEventLoop(100)
                 except Exception as e:
                     bot.diag.append(f"EXC:{type(e).__name__}:{e}")
@@ -3284,6 +3292,23 @@ def run_health_server():
     class HealthHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             import ctypes
+            if self.path == "/restart_radio":
+                b = global_radio_bot
+                if b:
+                    b.persist_state()
+                    b.restart_requested = True
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Radio restart requested")
+                return
+            if self.path == "/reboot_process":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"Rebooting process...")
+                import threading
+                threading.Thread(target=lambda: (time.sleep(0.5), os._exit(0)), daemon=True).start()
+                return
             if self.path == "/probe_voice":
                 b = global_radio_bot
                 if not b:
