@@ -515,13 +515,49 @@ SPECIAL_NAMES = {
     'حسین': 'hossein', 'مهدی': 'mehdi', 'حسن': 'hasan', 'امیر': 'amir',
     'علیرضا': 'alireza', 'محمدرضا': 'mohammadreza', 'فاطمه': 'fatemeh',
     'زهرا': 'zahra', 'مریم': 'maryam', 'سارا': 'sara', 'یلدا': 'yalda',
-    'امیری': 'amiri', 'علیایی': 'oliaiy', 'عُلیائی': 'oliaiy',
+    'امیری': 'amiri', 'علیایی': 'oliaiy', 'عُلیائی': 'oliaiy', 'عُلیایی': 'oliaiy',
     'محمدی': 'mohammadi', 'رضایی': 'rezaei', 'حسینی': 'hosseini',
-    'کاظمی': 'kazemi', 'صادقی': 'sadeghi'
+    'کاظمی': 'kazemi', 'صادقی': 'sadeghi', 'سعید': 'saeed', 'وحید': 'vahid',
+    'مجید': 'majid', 'حمید': 'hamid', 'نوید': 'navid', 'پیمان': 'peyman',
+    'سامان': 'saman', 'کامران': 'kamran', 'آرش': 'arash', 'سروش': 'soroush',
+    'نیما': 'nima', 'سینا': 'sina', 'پویا': 'pouya', 'میلاد': 'milad',
+    'فرزاد': 'farzad', 'فرهاد': 'farhad', 'مبین': 'mobin', 'متین': 'matin',
+    'آرمین': 'armin', 'احسان': 'ehsan', 'عرفان': 'erfan', 'پریسا': 'parisa',
+    'نگین': 'negin', 'نازنین': 'nazanin', 'نرگس': 'narges', 'بهار': 'bahar',
+    'نگار': 'negar', 'سپیده': 'sepideh', 'آرزو': 'arezoo', 'شیدا': 'sheyda',
+    'الهام': 'elham', 'نیلوفر': 'niloufar', 'امیرعلی': 'amirali', 'امیرحسین': 'amirhossein',
+    'امیرمحمد': 'amirmohammad', 'امیررضا': 'amirreza', 'امیرعباس': 'amirabbas',
+    'امیرمهدی': 'amirmehdi', 'محمدحسین': 'mohammadhossein', 'محمدعلی': 'mohammadali',
+    'محمدامین': 'mohammadamin', 'محمدجواد': 'mohammadjavad', 'محمدصادق': 'mohammadsadegh',
+    'محمدحسن': 'mohammadhasan', 'احمدرضا': 'ahmadreza', 'حمیدرضا': 'hamidreza',
+    'غلامرضا': 'gholamreza', 'عبدالرضا': 'abdolreza', 'امیدرضا': 'omidreza',
+    'سید': 'seyed', 'سیده': 'seyedeh', 'میر': 'mir', 'احمد': 'ahmad',
+    'محمود': 'mahmoud', 'مصطفی': 'mostafa', 'مرتضی': 'morteza', 'مجتبی': 'mojtaba',
+    'عباس': 'abbas', 'ابوالفضل': 'abolfazl', 'بهنام': 'behnam', 'بهروز': 'behrooz',
+    'بهمن': 'bahman', 'بابک': 'babak', 'بردیا': 'bardia', 'کیان': 'kian',
+    'کیارش': 'kiarash', 'سهراب': 'sohrab', 'سام': 'sam', 'داریوش': 'dariush',
+    'کوروش': 'kourosh', 'شهروز': 'shahrooz', 'شاهرخ': 'shahrokh', 'شهرام': 'shahram',
+    'شهاب': 'shahab', 'اشکان': 'ashkan', 'فرشید': 'farshid', 'فرید': 'farid',
+    'امیرحسام': 'amirhesam', 'حسام': 'hesam', 'دانیال': 'danial', 'رویا': 'roya',
+    'مینا': 'mina', 'سمیرا': 'samira', 'سمانه': 'samaneh', 'سوسن': 'sousan',
+    'شیما': 'shima', 'مونا': 'mona', 'مهسا': 'mahsa', 'مهتاب': 'mahtab',
+    'مهدیه': 'mahdieh', 'زهره': 'zohreh', 'محدثه': 'mohaddeseh',
+    'ستایش': 'setayesh', 'سوگند': 'sogand', 'عسل': 'asal', 'غزل': 'ghazal',
+    'ترانه': 'taraneh', 'باران': 'baran', 'آیدا': 'ayda', 'آتنا': 'atena',
+    'ریحانه': 'reyhaneh', 'رستم': 'rostam', 'رستمی': 'rostami', 'نادری': 'naderi',
+    'عباسی': 'abbasi', 'موسوی': 'mousavi', 'کریمی': 'karimi', 'جعفری': 'jafari',
+    'قاسمی': 'ghasemi', 'مرادی': 'moradi', 'ابراهیمی': 'ebrahimi', 'رحیمی': 'rahimi',
+    'مطهری': 'motahari', 'حیدری': 'heidari', 'نجفی': 'najafi', 'احمدی': 'ahmadi',
+    'باقری': 'bagheri', 'هاشمی': 'hashemi', 'طاهری': 'taheri', 'اسدی': 'asadi',
+    'نوروزی': 'norouzi', 'صالحی': 'salehi', 'فلاح': 'fallah', 'اکبری': 'akbari',
+    'شریفی': 'sharifi', 'قنبری': 'ghanbari', 'خسروی': 'khosravi', 'سلیمانی': 'soleimani',
+    'خدادادی': 'khodadadi', 'دهقان': 'dehghan', 'عسگری': 'asgari', 'عزیزی': 'azizi',
+    'فرهادی': 'farhadi', 'میرزایی': 'mirzaei'
 }
 
 def transliterate_word(w):
-    clean_w = w.replace('‌', '').replace('\u200c', '').strip()
+    clean_w = re.sub(r'[\u064B-\u065F\u0670]', '', w)
+    clean_w = clean_w.replace('‌', '').replace('‌', '').strip()
     if clean_w in SPECIAL_NAMES:
         return SPECIAL_NAMES[clean_w]
     res = ""
@@ -540,10 +576,10 @@ def persian_to_english(text):
     if len(en_words) == 1:
         return en_words[0]
     
-    first_name = " ".join(en_words[:-1])
+    first_name = "".join(en_words[:-1])
     last_name_initial = en_words[-1][0] if en_words[-1] else ""
     if last_name_initial:
-        username = f"{first_name} {last_name_initial}"
+        username = f"{first_name}.{last_name_initial}"
     else:
         username = first_name
     return username.strip().lower()
