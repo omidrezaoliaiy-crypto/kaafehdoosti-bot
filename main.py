@@ -2493,7 +2493,7 @@ RADIO_TT_USER = "radio kaafehdoosti"
 RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
 RADIO_TT_NICK = "radio kaafehdoosti"
 RADIO_CHAN_ID = 2
-RADIO_ADMINS = {"omid.o", "yalda"}
+RADIO_ADMINS = {"omid.o", "yalda", "admin", "kaafehdoostibot", "omid"}
 
 RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
 RADIO_TG_CHANNEL = "@raaduokaafehdoosti"
@@ -2533,10 +2533,44 @@ def get_radio_status():
     return "\n".join(lines)
 
 RADIO_STATE_FILE = os.path.join(os.getcwd(), "radio_state.json")
+SAVED_RADIO_VOLUME = 25
+
+def save_persistent_config(key, value):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS radio_settings (key TEXT PRIMARY KEY, val TEXT)")
+        c.execute("INSERT OR REPLACE INTO radio_settings (key, val) VALUES (?, ?)", (str(key), str(value)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[Radio] save_persistent_config err: {e}", flush=True)
+
+def load_persistent_config(key, default=None):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS radio_settings (key TEXT PRIMARY KEY, val TEXT)")
+        c.execute("SELECT val FROM radio_settings WHERE key=?", (str(key),))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0] is not None:
+            return row[0]
+    except Exception as e:
+        print(f"[Radio] load_persistent_config err: {e}", flush=True)
+    return default
 
 def load_saved_radio_state():
+    global SAVED_RADIO_VOLUME
+    db_vol = load_persistent_config("volume_percent", None)
+    if db_vol is not None:
+        try:
+            SAVED_RADIO_VOLUME = int(db_vol)
+        except Exception:
+            pass
+
     defaults = {
-        "volume_percent": 25,
+        "volume_percent": SAVED_RADIO_VOLUME,
         "title_hidden": False,
         "last_track_name": "Milad Rastaad موزیکدل - Refigh موزیکدل",
         "current_index": 5,
@@ -2547,6 +2581,8 @@ def load_saved_radio_state():
             with open(RADIO_STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 defaults.update(data)
+                if "volume_percent" in data:
+                    SAVED_RADIO_VOLUME = data["volume_percent"]
                 print(f"[Radio] Loaded state: {defaults}", flush=True)
         except Exception as e:
             print(f"[Radio] Load state err: {e}", flush=True)
@@ -2682,7 +2718,7 @@ class VoicePlayer:
                 dsp.bEnableAGC = False
                 dsp.bEnableDenoise = False
                 dsp.bEnableEchoCancellation = False
-                dsp.nGainLevel = 1000
+                dsp.nGainLevel = int(max(0, min(150, getattr(self.bot, "volume_percent", 100))) / 100.0 * 1000)
                 TeamTalk5._SetSoundInputPreprocess(self.bot._tt, ctypes.byref(dsp))
             except Exception:
                 pass
@@ -2695,6 +2731,15 @@ class VoicePlayer:
                     self.current_pos = pos
                     if len(chunk) < chunk_size:
                         chunk += bytes(chunk_size - len(chunk))
+                    
+                    cur_vol = getattr(self.bot, "volume_percent", 100)
+                    if cur_vol != 100:
+                        try:
+                            import audioop
+                            chunk = audioop.mul(chunk, 2, max(0.0, min(1.5, cur_vol / 100.0)))
+                        except Exception:
+                            pass
+
                     raw_buf = buf_type.from_buffer_copy(chunk)
                     ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
                     ab.uSampleIndex = sample_index
@@ -2713,6 +2758,15 @@ class VoicePlayer:
                 chunk = raw_pcm[pos:pos + chunk_size]
                 pos += chunk_size
                 self.current_pos = pos
+
+                # Direct C-level sample scaling matching active volume setting with zero CPU overhead
+                cur_vol = getattr(self.bot, "volume_percent", 100)
+                if cur_vol != 100:
+                    try:
+                        import audioop
+                        chunk = audioop.mul(chunk, 2, max(0.0, min(1.5, cur_vol / 100.0)))
+                    except Exception:
+                        pass
 
                 chunks_since_save += 1
                 if chunks_since_save >= 250:  # Save position every 5.0s (asynchronously, zero disk latency)
@@ -2822,13 +2876,15 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if hasattr(self, "voice_player") and getattr(self.voice_player, "current_pos", 0) > 0:
                 cur_sec = self.voice_player.current_pos / (self.voice_player.sample_rate * self.voice_player.channels * 2)
                 self.current_playback_sec = cur_sec
+            vol = getattr(self, "volume_percent", SAVED_RADIO_VOLUME)
             state = {
-                "volume_percent": self.volume_percent,
+                "volume_percent": vol,
                 "title_hidden": self.title_hidden,
                 "current_index": self.current_index,
                 "last_track_name": self.current_track.get("title", "") if self.current_track else self.last_track_name,
                 "playback_pos_sec": round(cur_sec, 2)
             }
+            save_persistent_config("volume_percent", vol)
             save_radio_state(state)
         except Exception as e:
             print(f"[Radio] persist_state err: {e}", flush=True)
@@ -3108,15 +3164,43 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.play_track(prev_idx, start_sec=0.0)
 
     def set_volume(self, percent, admin_name=None):
+        global SAVED_RADIO_VOLUME
         percent = max(0, min(150, percent))
         self.volume_percent = percent
+        SAVED_RADIO_VOLUME = percent
+        save_persistent_config("volume_percent", percent)
         self.persist_state()
         self.apply_current_volume()
         
-        msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد."
+        msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد و به صورت دائم ذخیره گردید."
         if admin_name:
             msg += f" (توسط {admin_name})"
         self.send_chat(msg)
+
+    def schedule_file_auto_delete(self, chan_id, file_id, file_name, delay_sec=240):
+        def _delete_worker():
+            print(f"[Radio] Auto-delete countdown started: '{file_name}' (ID: {file_id}) will be deleted in {delay_sec}s", flush=True)
+            time.sleep(delay_sec)
+            try:
+                print(f"[Radio] Deleting expired file '{file_name}' (ID: {file_id})...", flush=True)
+                self.doDeleteFile(chan_id, file_id)
+                self.send_chat(f"🗑 فایل موقت «{file_name}» پس از پایان مهلت ۴ دقیقه‌ای دانلود، با موفقیت از روم پاکسازی شد.")
+            except Exception as e:
+                print(f"[Radio] doDeleteFile error: {e}", flush=True)
+        threading.Thread(target=_delete_worker, daemon=True).start()
+
+    def cleanup_old_channel_files(self):
+        try:
+            files = self.getChannelFiles(RADIO_CHAN_ID)
+            for rf in files:
+                owner = TeamTalk5.ttstr(rf.szUsername).strip()
+                if owner in [RADIO_TT_USER, RADIO_TT_NICK, ""] or not owner:
+                    fid = rf.nFileID
+                    fname = TeamTalk5.ttstr(rf.szFileName)
+                    print(f"[Radio] Auto-cleaning stale file on join: {fname} (ID {fid})", flush=True)
+                    self.doDeleteFile(RADIO_CHAN_ID, fid)
+        except Exception as e:
+            print(f"[Radio] cleanup_old_channel_files error: {e}", flush=True)
 
     def upload_current_to_channel(self, requester_name):
         if not self.current_track or not os.path.exists(self.current_track["path"]):
@@ -3125,7 +3209,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         track = self.current_track
         try:
             print(f"[Radio] Uploading {track['path']} to room for {requester_name}...", flush=True)
-            self.send_chat(f"⏳ در حال آپلود فایل «{track['title']}» در بخش فایل‌های روم برای {requester_name}...")
+            self.send_chat(f"⏳ در حال آپلود فایل «{track['title']}» در بخش فایل‌های روم برای {requester_name} (مهلت دانلود: ۴ دقیقه)...")
             self.doSendFile(RADIO_CHAN_ID, track["path"])
         except Exception as e:
             print(f"[Radio] doSendFile error: {e}", flush=True)
@@ -3185,6 +3269,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
             self.apply_current_volume()
+            self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
             if self.playlist and not self.is_streaming:
@@ -3210,8 +3295,15 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def onCmdFileNew(self, remotefile):
         if remotefile.nChannelID == RADIO_CHAN_ID:
             fname = TeamTalk5.ttstr(remotefile.szFileName)
-            print(f"[Radio] File ready in room: {fname}", flush=True)
-            self.send_chat(f"✅ فایل «{fname}» در بخش فایل‌های روم قرار گرفت. اکنون می‌توانید آن را دانلود فرمایید.")
+            owner = TeamTalk5.ttstr(remotefile.szUsername).strip()
+            fid = remotefile.nFileID
+            chid = remotefile.nChannelID
+            print(f"[Radio] File ready in room: {fname} (ID {fid}, Owner: {owner})", flush=True)
+            if owner in [RADIO_TT_USER, RADIO_TT_NICK, ""] or not owner:
+                self.send_chat(f"✅ فایل «{fname}» در بخش فایل‌های روم قرار گرفت. این فایل به مدت ۴ دقیقه برای دانلود در دسترس است و پس از آن خودکار حذف خواهد شد.")
+                self.schedule_file_auto_delete(chid, fid, fname, delay_sec=240)
+            else:
+                self.send_chat(f"✅ فایل «{fname}» در بخش فایل‌های روم قرار گرفت.")
 
     def onCmdUserTextMessage(self, textmessage):
         sender = TeamTalk5.ttstr(textmessage.szFromUsername).strip()
@@ -3224,7 +3316,18 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             threading.Thread(target=self.upload_current_to_channel, args=(sender,), daemon=True).start()
             return
             
-        if sender_lower in RADIO_ADMINS:
+        is_admin = (sender_lower in RADIO_ADMINS)
+        if not is_admin:
+            try:
+                user = self.getUser(textmessage.nFromUserID)
+                if user and (getattr(user, "uUserType", 0) & 3 != 0):
+                    is_admin = True
+                elif hasattr(self, "_tt") and self._tt:
+                    is_admin = bool(TeamTalk5._IsChannelOperator(self._tt, RADIO_CHAN_ID, textmessage.nFromUserID))
+            except Exception:
+                pass
+
+        if is_admin:
             if msg_text in ["n", "next", "بعدی"]:
                 threading.Thread(target=self.play_next, args=(sender,), daemon=True).start()
             elif msg_text in ["b", "prev", "back", "قبلی"]:
