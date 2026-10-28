@@ -473,12 +473,15 @@ def monitor_teamtalk_activity():
                             except Exception:
                                 pass
                         elif "removeuser" in line:
-                            # اگر ربات رادیو از سرور خارج شد یا کیک شد، ربات ناظر فوراً مطلع می‌شود
-                            if "radio kaafehdoosti" in line or (global_radio_bot and getattr(global_radio_bot, "my_user_id", -99) > 0 and f"userid={global_radio_bot.my_user_id}" in line):
-                                print("[Watchdog Event] ربات ناظر خروج آنی ربات رادیو را ثبت کرد. دستور بازگشت فوری صادر شد.", flush=True)
-                                if global_radio_bot and not getattr(global_radio_bot, "restart_requested", False):
-                                    global_radio_bot.persist_state()
-                                    global_radio_bot.restart_requested = True
+                            # اگر ربات رادیو در حال کار از سرور خارج شد یا کیک شد، ربات ناظر فوراً مطلع می‌شود
+                            b = global_radio_bot
+                            if b and getattr(b, "connected", False) and (time.time() - getattr(b, "created_at", 0) > 30):
+                                my_uid = getattr(b, "my_user_id", -99)
+                                if (my_uid > 0 and f"userid={my_uid}" in line) or "radio kaafehdoosti" in line:
+                                    print("[Watchdog Event] ربات ناظر خروج آنی ربات رادیو را ثبت کرد. دستور بازگشت فوری صادر شد.", flush=True)
+                                    if not getattr(b, "restart_requested", False):
+                                        b.persist_state()
+                                        b.restart_requested = True
                         elif "loggedin" in line or "adduser" in line or "updateuser" in line:
                             u_m = re.search(r'username="([^"]+)"', line)
                             if u_m:
@@ -2786,6 +2789,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.current_index = self.saved_current_index
         self.current_playback_sec = saved.get("playback_pos_sec", 0.0)
         self.resume_pos_sec = self.current_playback_sec
+        self.created_at = time.time()
+        self.last_connected_at = 0
         
         self.is_streaming = False
         self.current_track = None
@@ -3110,6 +3115,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.diag.append("CON_SUCCESS")
         print("[Radio] Connected to TeamTalk server!", flush=True)
         self.connected = True
+        self.last_connected_at = time.time()
         cmd_id = self.doLogin(RADIO_TT_NICK, RADIO_TT_USER, RADIO_TT_PASS, "TeamTalk5")
         self.diag.append(f"LOGIN_CMD:{cmd_id}")
 
@@ -3250,12 +3256,7 @@ def start_radio_worker():
             bot = RadioMusicBot()
             global_radio_bot = bot
             bot.load_existing_cache()
-            
-            try:
-                bot.sync_telegram_playlist()
-            except Exception as e:
-                print(f"[Radio] Initial sync err: {e}", flush=True)
-                
+            # Start telegram sync in background so connect() starts immediately without delay
             threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
             
             last_connect_attempt = 0
@@ -3496,37 +3497,38 @@ def run_supervisor_watchdog():
         try:
             b = global_radio_bot
             if b:
-                needs_recovery = False
-                try:
-                    flags = b.getFlags()
-                except Exception:
-                    flags = 0
-
-                is_connected = (flags & 0x00004000) != 0
-
-                if not is_connected:
-                    needs_recovery = True
-                elif not getattr(b, "joined", False):
-                    # اگر متصل است ولی در اتاق ۲ نیست، فرمان ورود مستقیم صادر می‌کند
+                age = time.time() - getattr(b, "created_at", 0)
+                # مهلت ۳۰ ثانیه‌ای برای استارتاپ اولیه ربات جهت اتصال خودکار
+                if age > 30:
                     try:
-                        b.doJoinChannelByID(RADIO_CHAN_ID, "")
+                        flags = b.getFlags()
                     except Exception:
-                        needs_recovery = True
-                elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False):
-                    # اگر در اتاق است ولی موزیک پخش نمی‌شود، ادامه پخش را استارت می‌زند
-                    try:
-                        threading.Thread(target=b.play_track, args=(b.current_index,), daemon=True).start()
-                    except Exception:
-                        pass
+                        flags = 0
 
-                if needs_recovery and not getattr(b, "restart_requested", False):
-                    print("[Watchdog] ربات ناظر خروج یا قطعی ربات رادیو را تشخیص داد. در حال احیای خودکار...", flush=True)
-                    b.persist_state()
-                    b.restart_requested = True
+                    is_connected = (flags & 0x00004000) != 0
+
+                    if not is_connected:
+                        # اگر پس از مهلت اولیه یا پس از قطعی، هنوز وصل نشده
+                        if not getattr(b, "restart_requested", False):
+                            print("[Watchdog] ربات ناظر عدم اتصال رادیو را تایید کرد. احیای خودکار...", flush=True)
+                            b.persist_state()
+                            b.restart_requested = True
+                    elif not getattr(b, "joined", False):
+                        # متصل است ولی در اتاق ۲ نیست -> دستور ورود فوری صادر می‌کند
+                        try:
+                            b.doJoinChannelByID(RADIO_CHAN_ID, "")
+                        except Exception:
+                            pass
+                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False):
+                        # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
+                        try:
+                            threading.Thread(target=b.play_track, args=(b.current_index,), daemon=True).start()
+                        except Exception:
+                            pass
         except Exception as e:
             print(f"[Watchdog] Error in supervisor watchdog: {e}", flush=True)
 
-        time.sleep(12)  # بررسی دقیق هر ۱۲ ثانیه یک‌بار
+        time.sleep(15)
 
 # ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
 def keep_alive_worker():
