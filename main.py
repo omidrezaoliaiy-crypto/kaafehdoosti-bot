@@ -2811,6 +2811,12 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         with self.lock:
             if not self.playlist:
                 return
+            # اگر در حال پخش است، هرگز نباید ایندکس قطعه در حال خواندن تغییر کند
+            if getattr(self, "is_streaming", False) and getattr(self, "current_track", None):
+                for idx, t in enumerate(self.playlist):
+                    if t.get("path") == self.current_track.get("path"):
+                        self.current_index = idx
+                        return
             if self.last_track_name:
                 for idx, t in enumerate(self.playlist):
                     if t.get("title") == self.last_track_name:
@@ -2896,7 +2902,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if not updates.get("ok"):
             return
 
-        new_tracks = []
+        added_any = False
         for u in updates.get("result", []):
             cp = u.get("channel_post") or u.get("message")
             if not cp:
@@ -2915,37 +2921,30 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             dest_filename = f"{cp['message_id']}_{clean_title}"
             dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
             display_name = f"{performer} - {title}".strip(" -")
-            
             track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
+            
             if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
                 print(f"[Radio] Downloading: {display_name}", flush=True)
                 if self.download_tg_file(file_id, dest_path):
                     with self.lock:
                         if not any(x["path"] == dest_path for x in self.playlist):
                             self.playlist.append(track_info)
-                            print(f"[Radio] Added & Ready: {display_name}", flush=True)
-                            if self.joined:
-                                self.update_player_title()
+                            added_any = True
+                            print(f"[Radio] Added new track: {display_name}", flush=True)
+                            # اگر پلیر متوقف بود، شروع به پخش کند
                             if self.joined and not self.is_streaming:
                                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
             else:
                 with self.lock:
                     if not any(t["path"] == dest_path for t in self.playlist):
                         self.playlist.append(track_info)
+                        added_any = True
                         if self.joined and not self.is_streaming:
                             threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
-        # Any remaining tracks
-        if new_tracks:
-            with self.lock:
-                for t in new_tracks:
-                    if not any(x["path"] == t["path"] for x in self.playlist):
-                        self.playlist.append(t)
-            self.restore_track_index()
-            if self.joined:
-                self.update_player_title()
-            if self.joined and not self.is_streaming and self.playlist:
-                threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
+        if added_any and self.joined:
+            # فقط عنوان پلیر را برای نام قطعه بعدی بروزرسانی کن بدون این که پخش آهنگ قطع شود یا ریست گردد
+            self.update_player_title()
 
     def load_existing_cache(self):
         if not os.path.exists(RADIO_CACHE_DIR):
