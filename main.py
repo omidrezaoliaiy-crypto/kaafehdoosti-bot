@@ -49,7 +49,7 @@ SPLUS_CHANNEL_LINK = "https://splus.ir/Kafeh_doosti"
 SPLUS_ADMIN_CHAT_ID = 70365151
 
 # تنظیمات سرور تیم‌تاک کافه دوستی
-TT_HOST = "kaafehdoosti.ir"
+TT_HOST = "185.26.33.57"
 TT_PORT = 10333
 TT_ADMIN_USER = "kaafehdoostibot"
 TT_ADMIN_PASS = "asdfghjkl1234lkjhgfdsa4321qwwq"
