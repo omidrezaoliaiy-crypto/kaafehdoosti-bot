@@ -3301,7 +3301,7 @@ def start_radio_worker():
                         print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT} (TCP-tunneled audio)...", flush=True)
                         bot.diag.append("DO_CONNECT")
                         # Setting nUdpPort=0 routes audio cleanly over TCP with 0% packet loss
-                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, 0, 0, 0, False)
+                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
                         bot.diag.append(f"CONN_RES:{res}")
                         print(f"[Radio] connect() called, returned: {res}", flush=True)
                         if not res:
