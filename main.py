@@ -3231,9 +3231,15 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.send_chat(f"❌ خطا در قرار دادن فایل آهنگ: {e}")
 
     def onCmdError(self, nSource, clienterrormsg):
-        err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
-        self.diag.append(f"CMD_ERR:{nSource}:{clienterrormsg.nError}:{err_msg}")
-        print(f"[Radio] CMD ERROR (src {nSource}): {clienterrormsg.nError} - {err_msg}", flush=True)
+        try:
+            n_err = getattr(clienterrormsg, "nErrorNo", getattr(clienterrormsg, "nError", 0))
+            err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
+            self.diag.append(f"CMD_ERR:{nSource}:{n_err}:{err_msg}")
+            print(f"[Radio] CMD ERROR (src {nSource}): {n_err} - {err_msg}", flush=True)
+            if "already in channel" in err_msg.lower() or n_err == 1016:
+                self.joined = True
+        except Exception as e:
+            print(f"[Radio] onCmdError handler err: {e}", flush=True)
 
     def onCmdSuccess(self, nSource):
         self.diag.append(f"CMD_OK:{nSource}")
@@ -3274,8 +3280,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.my_user_id = my_id
         self.apply_current_volume()
         self.doChangeNickname(RADIO_TT_NICK)
-        res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
-        self.diag.append(f"JOIN_CMD:{res}")
+        
+        my_chan = 0
+        try:
+            u = self.getUser(my_id)
+            if u:
+                my_chan = u.nChannelID
+        except Exception:
+            pass
+            
+        if my_chan == RADIO_CHAN_ID:
+            print(f"[Radio] Already in channel {RADIO_CHAN_ID} via initchan!", flush=True)
+            self.joined = True
+            self.cleanup_old_channel_files()
+            self.restore_track_index()
+            self.update_player_title()
+            if self.playlist and not self.is_streaming:
+                start_at = getattr(self, "resume_pos_sec", 0.0)
+                threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
+        else:
+            res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
+            self.diag.append(f"JOIN_CMD:{res}")
 
     def onCmdUserJoinedChannel(self, user):
         my_id = getattr(self, "my_user_id", self.getMyUserID())
