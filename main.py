@@ -2498,6 +2498,8 @@ RADIO_ADMINS = {"omid.o", "yalda", "admin", "kaafehdoostibot", "omid"}
 RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
 RADIO_TG_CHANNEL = "@raaduokaafehdoosti"
 RADIO_CACHE_DIR = os.path.join(os.getcwd(), "music_cache")
+BASE_TRACK_CATALOG = [{'msg_id': 2, 'title': '99883435', 'performer': '<unknown>', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADAmrh6ZpUMSFpSAqKpUCPZfDsNDC2AAJlIQACYHYJUx7jpPRoHV2FPQQ'}, {'msg_id': 3, 'title': 'Aroos Shomali', 'performer': 'Ebi Aali @Raz-Music.IR', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADA2rh6oU8_xDsnBp2MVd7-PXsBQ84AAJmIQACYHYJU4QYFZMdM9k7PQQ'}, {'msg_id': 4, 'title': 'Gheyrati', 'performer': 'Savash', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBGrh6oZ0RzXv220sH80s3uIR70wOAAJnIQACYHYJU8Bgpm6mPc7sPQQ'}, {'msg_id': 5, 'title': 'Roya', 'performer': 'Savash', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBWrh6pQOffKhu7fsLc6FuytI-_7tAAJoIQACYHYJU5xAqA1LwD2JPQQ'}, {'msg_id': 6, 'title': 'Joonami ~ TajMusics.com ', 'performer': 'Novan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBmrh6pWyWor4uQu9sai_9mJgO0NsAAJtIQACYHYJU_JMmp8h2jc5PQQ'}, {'msg_id': 7, 'title': 'Refigh موزیکدل', 'performer': 'Milad Rastaad موزیکدل', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADB2rh6pdxFdGSSfxpFlK0BbquNV_ZAAJyIQACYHYJU0u8-R7M0F0dPQQ'}, {'msg_id': 8, 'title': 'Delam Tangete', 'performer': 'Sina Derakhshande', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCGrh6p8S9UXA7vdjzEd2s-Ld7a3wAAK_GgAC-20BU2ABr3mb7ogPPQQ'}, {'msg_id': 9, 'title': 'Nagam Barat', 'performer': 'Babak Jahanbakhsh', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCWrh6qgenVBzjOqwHfGbPQhYGm6JAAL1CQACLJa4UljOAbStJxUHPQQ'}, {'msg_id': 10, 'title': 'Kharabemoon Kard', 'performer': 'Mojtaba Dorbidi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCmrh6q4jJ016HwbRCeRtXCXgnUt9AAJKCgACTCtQUeEoaJDL-ylUPQQ'}, {'msg_id': 11, 'title': 'Bahooneh', 'performer': 'Mehdi Moghaddam', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADC2rh6q_nrQTcBjq0HzhcN3fEkYPSAAK7BwACrINZUWdCLD9YexswPQQ'}, {'msg_id': 12, 'title': 'Man Chi', 'performer': 'Misagh Raad', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDGrh6rOqt-3hVaklcFNqaxaunn_HAAKbBwAClYxIUYwgAAExzL-VqD0E'}, {'msg_id': 13, 'title': 'Dametam Garm (Live Version)', 'performer': 'Puzzle Band', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDWrh6sFE3IrUne-Fp7b3fSYaLYJ4AAJkBwACMQNYUSXgoQu0Zg4lPQQ'}, {'msg_id': 14, 'title': 'Ashti', 'performer': 'Mohammad Lotfi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDmrh6sLb3b_9sBwDH1HkHmW1lr_eAAI4CQACPH5QUZWjM7NbQ6pePQQ'}, {'msg_id': 15, 'title': 'Chatr', 'performer': 'Saman Jalili', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADD2rh6sMWmoRwDepddJjtavtCWtf1AAI1BwACTIfYUA2xbk9EBAj2PQQ'}, {'msg_id': 16, 'title': 'Shab Bekheir', 'performer': 'Kamran Molaei', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEGrhadOcqby-sJMgeQxNUQHfglQbAAK7IAACb7f5UsuBkYIT8uLOPQQ'}, {'msg_id': 17, 'title': 'To Doost Dashti', 'performer': 'Ali Abdolmaleki', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEWrhaizkMsU5fdqfDB1491LrLu9pAAIUHwACDbkJU82VTcvkPVJfPQQ'}, {'msg_id': 18, 'title': 'Mishe Bargardi Khoone', 'performer': 'Ashvan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEmrhap5sUfe89M1TTmouluBp8nQ9AAL8HwACk6zwUm-wnppxuGIiPQQ'}, {'msg_id': 19, 'title': 'Ma 2 Ta', 'performer': '2Yar', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADE2rha4nUQ0pVlBg-18hWLRSYGhG-AAIKHAAC4IvQUl_sQ13UvAcaPQQ'}, {'msg_id': 20, 'title': '[Be Shab Nareside Chera Deltange Cheshat Shudam] ~[SevilMusic.Com]~', 'performer': '[Shayan Yo]', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFGrheHq_xW2p4PH23kYN9pa0BGOlAAJJHgACWQEIU6lp5lkqcFnTPQQ'}, {'msg_id': 21, 'title': 'Yadet Nemiyad  | UpTune.ir', 'performer': 'Persian Remix  | آپ تیون', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFWrheHqfCAs4JOSMbT5I7P3ubkTGAAJKHgACWQEIU2z3T66agi8IPQQ'}, {'msg_id': 22, 'title': '2026_@Remix_song_rap-_I69OrwUBcg.mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFmrheHrbUEY2zDgda_WRLjNvwzXUAAJLHgACWQEIU9fffYNPEOz7PQQ'}, {'msg_id': 29, 'title': 'Dashi', 'performer': 'Shahin Najafi & Erfan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADHWrhkZtGXkFarSb_-K7lfWI2AqjpAAITIAACj0kJU_NcIkBwG4s2PQQ'}, {'msg_id': 30, 'title': 'Jigar Tala ~ Musics-Fa.Com', 'performer': '2Yar ~ Musics-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADHmrhk6Z3LXP_NhABOufq07JE53qlAAIVIAACj0kJU553Tj5nsne5PQQ'}, {'msg_id': 31, 'title': 'Injoori Nemishe', 'performer': 'Ali Montazeri', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADH2rhlXUqzBHdrEsRqsrLo1dUmAitAAIYIAACj0kJU4wiwRshhb9VPQQ'}, {'msg_id': 32, 'title': 'Koodeta', 'performer': 'Bijan Yaar', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADIGrhlZjP-9rU44VsD7nrZAtQ7BEcAAIZIAACj0kJUyxP4lr9-zDYPQQ'}, {'msg_id': 33, 'title': 'Haydeh & chavoshi', 'performer': '@MusiceMeee', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADIWrhlokK3PSExPrpNAnXPqWAg8tiAAIbIAACj0kJU-J4tFFv11qKPQQ'}, {'msg_id': 34, 'title': 'Siroos Pishghadam Delbar Delbar', 'performer': 'اینستاگرام: soonami_mp3', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADImrhl-t_A5LwqW0VSATd_5QxFxbwAAIcIAACj0kJUxTq8TR2Y1qMPQQ'}, {'msg_id': 35, 'title': 'Majnoonetam ~ UpMusic', 'performer': 'Soheil Mehrzadegan ~ UpMusic', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADI2rhl-tXS55J9NFakkAqNOgEjs3RAAIdIAACj0kJU8eEoWz0SeHOPQQ'}, {'msg_id': 36, 'title': 'Edame Nemidam', 'performer': 'Yousef Zamani', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJGrhmDYbDQVMHv2DzTdDFj3OwWq4AAIeIAACj0kJUxUpSMcYrooUPQQ'}, {'msg_id': 37, 'title': 'Amin-Habibi-Bi-Gharar-(New-Version)(Happy-Song.Ir)', 'performer': 'Amin-Habibi-Bi-Gharar-(New-Version)(Happy-Song.Ir)', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJWrhmDY_9nTxbjMTvJPacFjBir9pAAIfIAACj0kJU2Anplo2-k7UPQQ'}, {'msg_id': 38, 'title': 'Shaparak', 'performer': 'Ikan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJmrhmGBozTOEuJvLrV7-yFJ8AAFL5wACICAAAo9JCVM-LCoTCeGzoj0E'}, {'msg_id': 39, 'title': 'Kojaei Alan', 'performer': 'Hossein Montazeri', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJ2rhmGAvMFaSP1yOmH0bjyBbmKxAAAIiIAACj0kJUxZhMVEo5GQaPQQ'}, {'msg_id': 40, 'title': 'Kabootar', 'performer': 'Sina Parsian @RozMusic.com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKGrhmVvIWtIpiZju7Jx1JWcXeVzJAAIkIAACj0kJU2EgZF9HYk-uPQQ'}, {'msg_id': 41, 'title': 'Azizi ( ahaang.com )', 'performer': 'Alireza Talischi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKWrhmVuMV82N8bx4qD5hV2496od_AAIlIAACj0kJU3UdFAKT7sPFPQQ'}, {'msg_id': 42, 'title': 'Labato Zhel Bezanam topsongs.ir', 'performer': 'topsongs.ir', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKmrhms2sm-fMdoip9dqxn5iDRqs9AAImIAACj0kJU1pUu33Vzk6yPQQ'}, {'msg_id': 43, 'title': 'Phobia', 'performer': 'Armin Zarei @RozMusic.com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADK2rhms1nDhNKhp14ajIOm-9KzUZXAAIoIAACj0kJU2Dtq5zt2l5RPQQ'}, {'msg_id': 44, 'title': 'Zang Bezani', 'performer': 'Mohsen Ebrahimzadeh', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADLGrhms0nSBioXTV5BtbS25KX4mHOAAIpIAACj0kJU6DdDsMVp1GmPQQ'}, {'msg_id': 45, 'title': 'Ye Ja To Delet (320).mp3', 'performer': '', 'file_id': 'BQACAgQAAyEFAAMBBZ8iywADLWrhm3e8Vfu18m5ZHT6WI4dwIXH7AAIsIAACj0kJU5pZ7ScIufpcPQQ'}, {'msg_id': 46, 'title': '4 Divari ~ Music-Fa.Com', 'performer': 'Mohammad Moharami ~ Music-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADLmrhm-v7kSDz2j-DazET-kxYAAG93AACLiAAAo9JCVNzWjFD7AnuQT0E'}, {'msg_id': 47, 'title': 'Dino Donya موزیکدل', 'performer': 'Ahoora موزیکدل', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADL2rhm-sYg6LoMWQDEAWS75XsigdCAAIvIAACj0kJU1GwgJZqH453PQQ'}, {'msg_id': 48, 'title': 'Bedon Man Koja Mikhay Beri ~ TajMusics.Com ', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMGrhm-sjZWZONz3q4nCn_5NIKyigAAIwIAACj0kJU5byF1NshYs9PQQ'}, {'msg_id': 49, 'title': 'Shab Ahangi ~ Music-Fa.Com', 'performer': 'Masoud Sadeghloo ~ Music-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMWrhm-vQl56nsR-KDWLJOEgamugnAAIxIAACj0kJU9bor4EaY0-QPQQ'}, {'msg_id': 50, 'title': 'Mehdi Ahmadvand - Cheshmat (320).mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMmrhnThakBvpdRLk9E_2buQNORRWAAI0IAACj0kJU-OTSfEzkXM5PQQ'}, {'msg_id': 51, 'title': 'Sare To [SultanMusic.IR]', 'performer': 'Shayan Yo', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADM2rhnTha99MjLaaLq6kM436J_403AAI1IAACj0kJU0wbxy6qN2UKPQQ'}, {'msg_id': 52, 'title': 'Naser Pourkaram - Khabar Nadari.mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNGrhnTieXHCpXdZ-CUhDlBkvCqkZAAI2IAACj0kJU6FWC3ANWxG1PQQ'}, {'msg_id': 53, 'title': '[Bala Mala Ey Tala Tala] ~[SevilMusic.Com]~', 'performer': '[Unknown Artist]', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNWrhng9FOD-GCk8V1iUAAe3QPNaBYAACOCAAAo9JCVOsJYk18AnYfz0E'}, {'msg_id': 54, 'title': 'Vay Az Dastet', 'performer': 'Meysam Ebrahimi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNmrhuqRp_GXgZNL6RLk2IDBXXyG5AALCIQACQaDQUkIewAEQCMo4PQQ'}]
+
 os.makedirs(RADIO_CACHE_DIR, exist_ok=True)
 
 global_radio_bot = None
@@ -2980,63 +2982,76 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return False
 
     def sync_telegram_playlist(self):
-        params = {"limit": 100}
-        if getattr(self, "last_update_id", 0) > 0:
-            params["offset"] = self.last_update_id + 1
-        updates = self.tg_api("getUpdates", params)
-        if not updates.get("ok"):
-            return
-
-        res = updates.get("result", [])
-        if not res:
-            return
-
-        added_any = False
-        for u in res:
-            u_id = u.get("update_id", 0)
-            if u_id > getattr(self, "last_update_id", 0):
-                self.last_update_id = u_id
-            cp = u.get("channel_post") or u.get("message")
-            if not cp:
-                continue
-            audio = cp.get("audio") or cp.get("voice") or cp.get("document")
-            if not audio:
-                continue
-            
-            file_id = audio.get("file_id")
-            title = audio.get("title") or audio.get("file_name") or f"track_{cp['message_id']}"
-            performer = audio.get("performer") or ""
+        # 1. Download and ensure all catalog tracks are available
+        for item in BASE_TRACK_CATALOG:
+            mid = item.get("msg_id", 0)
+            fid = item.get("file_id")
+            title = item.get("title") or f"track_{mid}"
+            performer = item.get("performer") or ""
             clean_title = "".join(c for c in title if c.isalnum() or c in " ._-()").strip()
             if not clean_title.endswith(".mp3"):
                 clean_title += ".mp3"
-                
-            dest_filename = f"{cp['message_id']}_{clean_title}"
+            dest_filename = f"{mid}_{clean_title}"
             dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
             display_name = f"{performer} - {title}".strip(" -")
-            track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
-            
+            track_info = {"msg_id": mid, "title": display_name, "path": dest_path}
+
             if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
-                print(f"[Radio] Downloading: {display_name}", flush=True)
-                if self.download_tg_file(file_id, dest_path):
+                print(f"[Radio] Downloading catalog track: {display_name}", flush=True)
+                if self.download_tg_file(fid, dest_path):
                     with self.lock:
                         if not any(x["path"] == dest_path for x in self.playlist):
                             self.playlist.append(track_info)
-                            added_any = True
-                            print(f"[Radio] Added new track: {display_name}", flush=True)
-                            # اگر پلیر متوقف بود، شروع به پخش کند
+                            print(f"[Radio] Catalog track ready: {display_name} ({len(self.playlist)} tracks)", flush=True)
                             if self.joined and not self.is_streaming:
                                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
             else:
                 with self.lock:
                     if not any(t["path"] == dest_path for t in self.playlist):
                         self.playlist.append(track_info)
-                        added_any = True
                         if self.joined and not self.is_streaming:
                             threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
-        if added_any and self.joined:
-            # فقط عنوان پلیر را برای نام قطعه بعدی بروزرسانی کن بدون این که پخش آهنگ قطع شود یا ریست گردد
-            self.update_player_title()
+        # 2. Check getUpdates for any brand new tracks posted by users
+        try:
+            updates = self.tg_api("getUpdates", {"limit": 50})
+            added_any = False
+            for u in updates.get("result", []):
+                cp = u.get("channel_post") or u.get("message")
+                if not cp:
+                    continue
+                audio = cp.get("audio") or cp.get("voice") or cp.get("document")
+                if not audio:
+                    continue
+                file_id = audio.get("file_id")
+                title = audio.get("title") or audio.get("file_name") or f"track_{cp['message_id']}"
+                performer = audio.get("performer") or ""
+                clean_title = "".join(c for c in title if c.isalnum() or c in " ._-()").strip()
+                if not clean_title.endswith(".mp3"):
+                    clean_title += ".mp3"
+                dest_filename = f"{cp['message_id']}_{clean_title}"
+                dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
+                display_name = f"{performer} - {title}".strip(" -")
+                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
+                if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
+                    print(f"[Radio] Downloading new user track: {display_name}", flush=True)
+                    if self.download_tg_file(file_id, dest_path):
+                        with self.lock:
+                            if not any(x["path"] == dest_path for x in self.playlist):
+                                self.playlist.append(track_info)
+                                added_any = True
+                                print(f"[Radio] Added user track: {display_name}", flush=True)
+                                if self.joined and not self.is_streaming:
+                                    threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
+                else:
+                    with self.lock:
+                        if not any(t["path"] == dest_path for t in self.playlist):
+                            self.playlist.append(track_info)
+                            added_any = True
+            if added_any and self.joined:
+                self.update_player_title()
+        except Exception as e:
+            print(f"[Radio] getUpdates poll err: {e}", flush=True)
 
     def load_existing_cache(self):
         if not os.path.exists(RADIO_CACHE_DIR):
