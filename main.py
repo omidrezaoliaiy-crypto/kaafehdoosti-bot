@@ -2553,16 +2553,17 @@ def load_saved_radio_state():
     return defaults
 
 def save_radio_state(state):
-    try:
-        with open(RADIO_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"[Radio] Save state err: {e}", flush=True)
+    def _do_write():
+        try:
+            tmp_path = RADIO_STATE_FILE + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+                f.flush()
+            if os.path.exists(tmp_path):
+                os.replace(tmp_path, RADIO_STATE_FILE)
+        except Exception as e:
+            print(f"[Radio] Save state err: {e}", flush=True)
+    threading.Thread(target=_do_write, daemon=True).start()
 
 class VoicePlayer:
     def __init__(self, bot):
@@ -2675,7 +2676,31 @@ class VoicePlayer:
             ab.nSamples = samples_per_frame
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
 
-            # Send pre-buffer (3 frames = 60ms) to ensure receiver jitter buffer never starves
+            # Disable DSP preprocessing (denoiser and AGC) so music fidelity is 100% natural
+            try:
+                dsp = TeamTalk5.SpeexDSP()
+                dsp.bEnableAGC = False
+                dsp.bEnableDenoise = False
+                dsp.bEnableEchoCancellation = False
+                dsp.nGainLevel = 1000
+                TeamTalk5._SetSoundInputPreprocess(self.bot._tt, ctypes.byref(dsp))
+            except Exception:
+                pass
+
+            # Pre-buffer 5 frames (100ms) to ensure jitter buffer is never starved
+            for _ in range(5):
+                if pos < total_len and not self.stop_event.is_set():
+                    chunk = raw_pcm[pos:pos + chunk_size]
+                    pos += chunk_size
+                    self.current_pos = pos
+                    if len(chunk) < chunk_size:
+                        chunk += bytes(chunk_size - len(chunk))
+                    raw_buf = buf_type.from_buffer_copy(chunk)
+                    ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+                    ab.uSampleIndex = sample_index
+                    sample_index += samples_per_frame
+                    self.bot.insertAudioBlock(ab)
+
             first_logged = False
             failed_inserts = 0
             chunks_since_save = 0
@@ -2683,7 +2708,6 @@ class VoicePlayer:
             # Accurate drift-compensated clock for crystal-clear, uninterrupted voice transmission
             clock_start = time.perf_counter()
             frame_idx = 0
-            lead_time = 0.040  # Maintain 40ms lead for jitter protection
 
             while pos < total_len and not self.stop_event.is_set():
                 chunk = raw_pcm[pos:pos + chunk_size]
@@ -2691,7 +2715,7 @@ class VoicePlayer:
                 self.current_pos = pos
 
                 chunks_since_save += 1
-                if chunks_since_save >= 100:  # Save position every 2.0s
+                if chunks_since_save >= 250:  # Save position every 5.0s (asynchronously, zero disk latency)
                     chunks_since_save = 0
                     sec = pos / (self.sample_rate * self.channels * 2)
                     self.bot.current_playback_sec = sec
@@ -2713,7 +2737,8 @@ class VoicePlayer:
 
                 if not ins_ok:
                     failed_inserts += 1
-                    if failed_inserts >= 20:
+                    time.sleep(0.010)
+                    if failed_inserts >= 30:
                         print(f"[Radio] insertAudioBlock rejected {failed_inserts} times. Fallback...", flush=True)
                         self.bot.diag.append("INS_FAIL_FALLBACK")
                         self.bot.stream_media_file_fallback(track_path)
@@ -2722,7 +2747,7 @@ class VoicePlayer:
                     failed_inserts = 0
 
                 frame_idx += 1
-                target_time = clock_start + (frame_idx * 0.020) - lead_time
+                target_time = clock_start + (frame_idx * 0.020)
                 now = time.perf_counter()
                 sleep_sec = target_time - now
                 if sleep_sec > 0.001:
@@ -2750,6 +2775,7 @@ class VoicePlayer:
                 self.bot.resume_pos_sec = 0.0
                 self.bot.persist_state()
                 self.bot.is_streaming = False
+                self.bot.last_track_finish_at = time.time()
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
@@ -2898,12 +2924,22 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return False
 
     def sync_telegram_playlist(self):
-        updates = self.tg_api("getUpdates", {"limit": 100})
+        params = {"limit": 100}
+        if getattr(self, "last_update_id", 0) > 0:
+            params["offset"] = self.last_update_id + 1
+        updates = self.tg_api("getUpdates", params)
         if not updates.get("ok"):
             return
 
+        res = updates.get("result", [])
+        if not res:
+            return
+
         added_any = False
-        for u in updates.get("result", []):
+        for u in res:
+            u_id = u.get("update_id", 0)
+            if u_id > getattr(self, "last_update_id", 0):
+                self.last_update_id = u_id
             cp = u.get("channel_post") or u.get("message")
             if not cp:
                 continue
@@ -3262,9 +3298,10 @@ def start_radio_worker():
                     is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
                     if not is_connecting_or_connected and (time.time() - last_connect_attempt > 5):
                         last_connect_attempt = time.time()
-                        print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT}...", flush=True)
+                        print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT} (TCP-tunneled audio)...", flush=True)
                         bot.diag.append("DO_CONNECT")
-                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
+                        # Setting nUdpPort=0 routes audio cleanly over TCP with 0% packet loss
+                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, 0, 0, 0, False)
                         bot.diag.append(f"CONN_RES:{res}")
                         print(f"[Radio] connect() called, returned: {res}", flush=True)
                         if not res:
@@ -3272,7 +3309,7 @@ def start_radio_worker():
                             bot.persist_state()
                             bot.restart_requested = True
                             break
-                    bot.runEventLoop(100)
+                    bot.runEventLoop(20)
                 except Exception as e:
                     bot.diag.append(f"EXC:{type(e).__name__}:{e}")
                     print(f"[Radio] Loop err: {e}", flush=True)
@@ -3515,7 +3552,7 @@ def run_supervisor_watchdog():
                             b.doJoinChannelByID(RADIO_CHAN_ID, "")
                         except Exception:
                             pass
-                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False):
+                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
                         # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
                         try:
                             threading.Thread(target=b.play_track, args=(b.current_index,), daemon=True).start()
