@@ -3017,26 +3017,6 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[Radio] Download error: {e}", flush=True)
             return False
 
-    def _is_duplicate_track(self, title, path=""):
-        def normalize(s):
-            return re.sub(r'[^a-zA-Z0-9\u0600-\u06FF]', '', str(s).lower())
-        norm_new = normalize(title)
-        for t in self.playlist:
-            if path and t.get("path") == path:
-                return True
-            norm_existing = normalize(t.get("title", ""))
-            if norm_new and norm_existing and norm_new == norm_existing:
-                return True
-            if path and os.path.exists(path) and os.path.exists(t.get("path", "")):
-                try:
-                    sz1 = os.path.getsize(path)
-                    sz2 = os.path.getsize(t["path"])
-                    if sz1 > 50000 and sz1 == sz2:
-                        return True
-                except Exception:
-                    pass
-        return False
-
     def sync_telegram_playlist(self):
         # 1. Download and ensure all catalog tracks are available
         for item in BASE_TRACK_CATALOG:
@@ -3056,14 +3036,14 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 print(f"[Radio] Downloading catalog track: {display_name}", flush=True)
                 if self.download_tg_file(fid, dest_path):
                     with self.lock:
-                        if not self._is_duplicate_track(display_name, dest_path):
+                        if not any(x["path"] == dest_path for x in self.playlist):
                             self.playlist.append(track_info)
                             print(f"[Radio] Catalog track ready: {display_name} ({len(self.playlist)} tracks)", flush=True)
                             if self.joined and not self.is_streaming:
                                 threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
             else:
                 with self.lock:
-                    if not self._is_duplicate_track(display_name, dest_path):
+                    if not any(t["path"] == dest_path for t in self.playlist):
                         self.playlist.append(track_info)
                         if self.joined and not self.is_streaming:
                             threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
@@ -3094,15 +3074,11 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 display_name = f"{performer} - {title}".strip(" -")
                 track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
 
-                with self.lock:
-                    if self._is_duplicate_track(display_name, dest_path):
-                        continue
-
                 if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
                     print(f"[Radio] Downloading new user track: {display_name}", flush=True)
                     if self.download_tg_file(file_id, dest_path):
                         with self.lock:
-                            if not self._is_duplicate_track(display_name, dest_path):
+                            if not any(x["path"] == dest_path for x in self.playlist):
                                 self.playlist.append(track_info)
                                 added_any = True
                                 print(f"[Radio] Added user track: {display_name}", flush=True)
@@ -3110,7 +3086,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                                     threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
                 else:
                     with self.lock:
-                        if not self._is_duplicate_track(display_name, dest_path):
+                        if not any(t["path"] == dest_path for t in self.playlist):
                             self.playlist.append(track_info)
                             added_any = True
 
@@ -3133,12 +3109,12 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 if "_" in title:
                     title = title.split("_", 1)[1]
                 with self.lock:
-                    if not self._is_duplicate_track(title, path):
+                    if not any(t["path"] == path for t in self.playlist):
                         self.playlist.append({
                             "title": title,
                             "path": path
                         })
-        print(f"[Radio] Loaded {len(self.playlist)} unique tracks from cache.", flush=True)
+        print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
         self.restore_track_index()
 
     def update_player_title(self):
