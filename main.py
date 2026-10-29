@@ -426,6 +426,19 @@ def run_inactivity_checker():
             pass
         time.sleep(86400) # هر ۲۴ ساعت یک بار بررسی می‌کند
 
+supervisor_socket = None
+supervisor_socket_lock = threading.Lock()
+
+def supervisor_update_radio_note(note_content):
+    global supervisor_socket
+    if supervisor_socket:
+        try:
+            with supervisor_socket_lock:
+                update_cmd = f'updateaccount username="radio kaafehdoosti" note="{note_content}"\r\n'.encode('utf-8')
+                supervisor_socket.sendall(update_cmd)
+        except Exception:
+            pass
+
 def monitor_teamtalk_activity():
     """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران در کانال مدیریت (chanid=28)"""
     time.sleep(5)
@@ -443,11 +456,30 @@ def monitor_teamtalk_activity():
             # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=28) با پسورد 12123123
             s.sendall(b'join chanid=28 password="12123123"\r\n')
             
+            global supervisor_socket
+            with supervisor_socket_lock:
+                supervisor_socket = s
+
             last_ping = time.time()
+            last_radio_sync = 0
+            last_synced_state = ""
             buffer = ""
             
             while True:
                 now = time.time()
+                if now - last_radio_sync >= 15:
+                    last_radio_sync = now
+                    b = global_radio_bot
+                    if b and getattr(b, "connected", False):
+                        cur_sec = getattr(b, "resume_pos_sec", getattr(b, "current_playback_sec", 0.0))
+                        t_file = getattr(b, "last_track_file", "")
+                        vol = getattr(b, "volume_percent", 100)
+                        idx = getattr(b, "current_index", 0)
+                        note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
+                        if note_content != last_synced_state:
+                            last_synced_state = note_content
+                            supervisor_update_radio_note(note_content)
+
                 if now - last_ping >= 20:
                     try:
                         s.sendall(b'ping\r\n')
@@ -492,6 +524,8 @@ def monitor_teamtalk_activity():
         except Exception as e:
             print(f"خطا در ربات ناظر: {e}. اتصال مجدد ۵ ثانیه دیگر...", flush=True)
         finally:
+            with supervisor_socket_lock:
+                supervisor_socket = None
             if s:
                 try:
                     s.close()
@@ -2986,6 +3020,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             save_persistent_config("last_track_name", t_name)
             save_persistent_config("last_track_file", t_file)
             save_radio_state(state)
+            note_content = f"STATE:POS={round(cur_sec, 1)};TRK={t_file};IDX={self.current_index};VOL={vol}"
+            supervisor_update_radio_note(note_content)
         except Exception as e:
             print(f"[Radio] persist_state err: {e}", flush=True)
 
