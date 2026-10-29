@@ -683,6 +683,18 @@ def monitor_teamtalk_activity():
                                     except Exception:
                                         pass
                                     b.restart_requested = True
+                                try:
+                                    ensure_radio_worker_alive()
+                                except Exception:
+                                    pass
+                            elif "hivaplayer" in line or "yalda-player" in line or "music player" in line:
+                                print(f"[Watchdog Alert] ربات ناظر خروج موزیک پلیر دیگر سرور را ثبت کرد: {line}", flush=True)
+                                try:
+                                    u_match = re.search(r'username="([^"]+)"', line)
+                                    u_name_del = u_match.group(1) if u_match else "موزیک پلیر"
+                                    send_message(ADMIN_CHAT_ID, f"⚠️ هشدار ربات ناظر:\nربات موزیک پلیر «{u_name_del}» از سرور خارج شد.")
+                                except Exception:
+                                    pass
                         elif "loggedin" in line or "adduser" in line or "updateuser" in line:
                             u_m = re.search(r'username="([^"]+)"', line)
                             if u_m:
@@ -3815,6 +3827,17 @@ def radio_telegram_sync_worker(bot):
             print(f"[Radio] Sync error: {e}", flush=True)
         time.sleep(15)
 
+radio_worker_thread = None
+radio_thread_lock = threading.Lock()
+
+def ensure_radio_worker_alive():
+    global radio_worker_thread
+    with radio_thread_lock:
+        if radio_worker_thread is None or not radio_worker_thread.is_alive():
+            print("[Watchdog] ترد رادیو متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید رادیو...", flush=True)
+            radio_worker_thread = threading.Thread(target=start_radio_worker, daemon=True, name="RadioWorkerThread")
+            radio_worker_thread.start()
+
 def start_radio_worker():
     global global_radio_bot
     print("شروع سرویس رادیو کافه دوستی...", flush=True)
@@ -3878,6 +3901,7 @@ def run_supervisor_watchdog():
     time.sleep(5)
     while True:
         try:
+            ensure_radio_worker_alive()
             b = globals().get("global_radio_bot")
             if b:
                 age = time.time() - getattr(b, "created_at", 0)
@@ -3888,26 +3912,28 @@ def run_supervisor_watchdog():
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
+                    is_connecting = (flags & 0x00002000) != 0
 
-                    if not is_connected:
+                    if is_connected:
+                        if not getattr(b, "joined", False):
+                            try:
+                                b.doJoinChannelByID(RADIO_CHAN_ID, "")
+                            except Exception:
+                                pass
+                        elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, "_is_starting_playback", False):
+                            if time.time() - getattr(b, "last_track_finish_at", 0) > 3:
+                                print("[Watchdog] رادیو در کانال ۲ است ولی موزیک متوقف است. ادامه خودکار پخش...", flush=True)
+                                try:
+                                    threading.Thread(target=b.auto_start_playback, daemon=True).start()
+                                except Exception:
+                                    pass
+                    elif not is_connecting:
                         print("[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
                         except Exception:
                             pass
                         b.restart_requested = True
-                    elif not getattr(b, "joined", False):
-                        try:
-                            b.doJoinChannelByID(RADIO_CHAN_ID, "")
-                        except Exception:
-                            pass
-                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, "_is_starting_playback", False):
-                        if time.time() - getattr(b, "last_track_finish_at", 0) > 3:
-                            print("[Watchdog] رادیو در کانال ۲ است ولی موزیک متوقف است. ادامه خودکار پخش...", flush=True)
-                            try:
-                                threading.Thread(target=b.auto_start_playback, daemon=True).start()
-                            except Exception:
-                                pass
         except Exception as e:
             print(f"[Watchdog] Error in supervisor watchdog: {e}", flush=True)
 
@@ -3915,21 +3941,22 @@ def run_supervisor_watchdog():
 
 # ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
 def keep_alive_worker():
-    time.sleep(60)
+    time.sleep(30)
     while True:
         try:
-            req = urllib.request.Request("https://kaafehdoosti-bot.onrender.com", headers={'User-Agent': 'KeepAlivePing/1.0'})
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            req = urllib.request.Request("https://kaafehdoosti-bot.onrender.com/radio_status", headers={'User-Agent': 'SelfKeepAlive/1.0'})
+            with opener.open(req, timeout=15) as resp:
                 pass
         except Exception:
             pass
-        time.sleep(600)  # هر ۱۰ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
+        time.sleep(180)  # هر ۳ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
 
 threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
-threading.Thread(target=start_radio_worker, daemon=True).start()
+ensure_radio_worker_alive()
 threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
 
 # ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
