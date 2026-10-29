@@ -3699,9 +3699,16 @@ def run_health_server():
                     self.wfile.write(f"Probe err: {e}".encode('utf-8'))
                     return
             if self.path.startswith("/check_fid"):
-                b = global_radio_bot
                 fid = BASE_TRACK_CATALOG[0]["file_id"] if BASE_TRACK_CATALOG else ""
-                res = b.tg_api("getFile", {"file_id": fid}) if b else {"err": "no bot"}
+                url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/getFile?file_id={fid}"
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        res = json.loads(resp.read().decode())
+                except urllib.error.HTTPError as e:
+                    res = {"http_error": e.code, "msg": e.read().decode("utf-8", errors="ignore")}
+                except Exception as e:
+                    res = {"generic_error": str(e)}
                 self.send_response(200)
                 self.send_header("Content-type", "application/json")
                 self.end_headers()
