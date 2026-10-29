@@ -1084,7 +1084,7 @@ def create_teamtalk_account(username, password, phone):
             s.close()
             return False, "عدم پذیرش ورود ادمین ربات به سرور تیم‌تاک"
         
-        cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} initchan="/" cmdflood=[10,60000]\r\n'
+        cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} initchan="/" cmdflood=[30,60000]\r\n'
         s.sendall(cmd_new.encode('utf-8'))
         time.sleep(1)
         
@@ -1116,7 +1116,7 @@ def reset_teamtalk_account(username, password, phone=""):
         s.sendall(del_cmd.encode('utf-8'))
         time.sleep(0.5)
         
-        cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} initchan="/" cmdflood=[10,60000]\r\n'
+        cmd_new = f'newaccount username="{username}" password="{password}" note="{phone}" usertype=1 userrights={TT_USER_RIGHTS} initchan="/" cmdflood=[30,60000]\r\n'
         s.sendall(cmd_new.encode('utf-8'))
         time.sleep(0.5)
         
