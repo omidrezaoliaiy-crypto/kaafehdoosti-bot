@@ -23,6 +23,8 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import ctypes
+import http.server
+import socketserver
 
 # تنظیم اوپنر بدون پروکسی برای اطمینان از اتصال پایدار
 try:
@@ -35,6 +37,160 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
+
+# ----------------- سرور سلامت و مانیتورینگ Render (شروع سریع در خطوط آغازین) -----------------
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    class HealthHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            import ctypes
+            if self.path == "/restart_radio":
+                b = globals().get("global_radio_bot")
+                if b:
+                    try:
+                        b.persist_state()
+                    except Exception:
+                        pass
+                    b.restart_requested = True
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Radio restart requested")
+                return
+            if self.path == "/reboot_process":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"Rebooting process...")
+                import threading
+                threading.Thread(target=lambda: (time.sleep(0.5), os._exit(0)), daemon=True).start()
+                return
+            if self.path == "/probe_voice":
+                b = globals().get("global_radio_bot")
+                if not b:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"No bot")
+                    return
+                try:
+                    chan_id = globals().get("RADIO_CHAN_ID", 2)
+                    tt5 = globals().get("TeamTalk5")
+                    chan = b.getChannel(chan_id)
+                    codec_type = getattr(chan.audiocodec, "nCodec", -1)
+                    opus_sr = 0
+                    opus_ch = 0
+                    opus_br = 0
+                    if tt5 and codec_type == tt5.Codec.OPUS_CODEC:
+                        opus_sr = getattr(chan.audiocodec.opus, "nSampleRate", 0)
+                        opus_ch = getattr(chan.audiocodec.opus, "nChannels", 0)
+                        opus_br = getattr(chan.audiocodec.opus, "nBitRate", 0)
+                    res = {
+                        "flags": hex(b.getFlags()),
+                        "chan_codec": codec_type,
+                        "opus_sr": opus_sr,
+                        "opus_ch": opus_ch,
+                        "opus_br": opus_br,
+                        "diag": b.diag[-10:],
+                        "is_streaming": b.is_streaming,
+                    }
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(f"Probe err: {e}".encode('utf-8'))
+                    return
+            if self.path == "/radio_status":
+                status_func = globals().get("get_radio_status")
+                msg = status_func() if status_func else "در حال راه‌اندازی..."
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(msg.encode('utf-8'))
+                return
+            if self.path == "/test_tt_sdk":
+                ensure_func = globals().get("ensure_linux_tt_sdk")
+                ok, msg = ensure_func() if ensure_func else (False, "Not defined yet")
+                load_msg = ""
+                if ok:
+                    try:
+                        import ctypes
+                        dll = ctypes.cdll.LoadLibrary("./libTeamTalk5.so")
+                        dll.TT_InitTeamTalkPoll.restype = ctypes.c_void_p
+                        res = dll.TT_InitTeamTalkPoll()
+                        load_msg = f"SUCCESS! TTInstance: {res}"
+                        dll.TT_CloseTeamTalk.argtypes = [ctypes.c_void_p]
+                        dll.TT_CloseTeamTalk(res)
+                    except Exception as e:
+                        load_msg = f"Load failed: {e}"
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(f"Ensure: {ok} ({msg})\nLoad: {load_msg}".encode('utf-8'))
+                return
+            if self.path == "/server_info":
+                b = globals().get("global_radio_bot")
+                if not b or not getattr(b, "connected", False):
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"Bot not connected")
+                    return
+                try:
+                    tt5 = globals().get("TeamTalk5")
+                    chans = []
+                    for cid in range(1, 40):
+                        try:
+                            c = b.getChannel(cid)
+                            if c.nChannelID == cid:
+                                chans.append({
+                                    "nChannelID": c.nChannelID,
+                                    "nParentID": c.nParentID,
+                                    "szName": tt5.ttstr(c.szName) if tt5 else str(c.szName),
+                                    "szTopic": tt5.ttstr(c.szTopic) if tt5 else str(c.szTopic),
+                                    "uChannelType": c.uChannelType,
+                                    "nDiskQuota": c.nDiskQuota,
+                                    "nMaxUsers": c.nMaxUsers,
+                                })
+                        except Exception:
+                            pass
+                    users_raw = b.getServerUsers()
+                    users = []
+                    for u in users_raw:
+                        users.append({
+                            "nUserID": u.nUserID,
+                            "szNickname": tt5.ttstr(u.szNickname) if tt5 else str(u.szNickname),
+                            "szUsername": tt5.ttstr(u.szUsername) if tt5 else str(u.szUsername),
+                            "nChannelID": u.nChannelID,
+                        })
+                    res_data = {"channels": chans, "users": users}
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res_data, ensure_ascii=False, indent=2).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(f"Err: {e}".encode('utf-8'))
+                    return
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write("ربات کافه دوستی به صورت ۲۴ ساعته در تلگرام و سروش فعال است.".encode('utf-8'))
+        def log_message(self, format, *args):
+            pass
+    try:
+        with socketserver.TCPServer(("", port), HealthHandler) as httpd:
+            print(f"سرور سلامت روی پورت {port} فعال شد.", flush=True)
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"خطای سرور سلامت: {e}", flush=True)
+
+threading.Thread(target=run_health_server, daemon=True).start()
+
 
 # ----------------- تنظیمات اصلی تلگرام و سروش پلاس -----------------
 BOT_TOKEN = "8873777481:AAGD4DjF9AebcYqfZen8sUpbxu2wA8pZXqk"
@@ -506,19 +662,46 @@ def monitor_teamtalk_activity():
                                 pass
                         elif "removeuser" in line:
                             # اگر ربات رادیو در حال کار از سرور خارج شد یا کیک شد، ربات ناظر فوراً مطلع می‌شود
-                            b = global_radio_bot
-                            if b and getattr(b, "connected", False) and (time.time() - getattr(b, "created_at", 0) > 30):
-                                my_uid = getattr(b, "my_user_id", -99)
-                                if (my_uid > 0 and f"userid={my_uid}" in line) or "radio kaafehdoosti" in line:
-                                    print("[Watchdog Event] ربات ناظر خروج آنی ربات رادیو را ثبت کرد. دستور بازگشت فوری صادر شد.", flush=True)
-                                    if not getattr(b, "restart_requested", False):
+                            global supervisor_radio_userid
+                            uid_m = re.search(r'userid=(\d+)', line)
+                            del_uid = int(uid_m.group(1)) if uid_m else -99
+                            b = globals().get("global_radio_bot")
+                            b_uid = getattr(b, "my_user_id", -99) if b else -99
+                            
+                            is_radio = False
+                            if del_uid > 0 and (del_uid == b_uid or del_uid == supervisor_radio_userid):
+                                is_radio = True
+                            elif "radio kaafehdoosti" in line:
+                                is_radio = True
+
+                            if is_radio:
+                                print(f"[Watchdog Event] ربات ناظر خروج یا اخراج آنی ربات رادیو (uid={del_uid}) را ثبت کرد. احیای فوری و ادامه پخش...", flush=True)
+                                supervisor_radio_userid = None
+                                if b:
+                                    try:
                                         b.persist_state()
-                                        b.restart_requested = True
+                                    except Exception:
+                                        pass
+                                    b.restart_requested = True
                         elif "loggedin" in line or "adduser" in line or "updateuser" in line:
                             u_m = re.search(r'username="([^"]+)"', line)
                             if u_m:
                                 u_name = u_m.group(1).strip().lower()
                                 update_tt_last_seen(u_name)
+                                if "radio kaafehdoosti" in u_name:
+                                    uid_m = re.search(r'userid=(\d+)', line)
+                                    if uid_m:
+                                        supervisor_radio_userid = int(uid_m.group(1))
+                            if "radio kaafehdoosti" in line:
+                                c_m = re.search(r'chanid=(\d+)', line)
+                                if c_m and int(c_m.group(1)) != RADIO_CHAN_ID:
+                                    print(f"[Watchdog Event] ربات ناظر تغییر کانال رادیو به {c_m.group(1)} را دید. انتقال فوری به کانال ۲...", flush=True)
+                                    b = globals().get("global_radio_bot")
+                                    if b:
+                                        try:
+                                            b.doJoinChannelByID(RADIO_CHAN_ID, "")
+                                        except Exception:
+                                            pass
                 except socket.timeout:
                     continue
         except Exception as e:
@@ -3526,10 +3709,12 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             threading.Thread(target=self.auto_start_playback, daemon=True).start()
 
     def onCmdMyselfKickedFromChannel(self, nSource, user):
-        print("[Radio] Bot left or kicked. Preserving position and rejoining...", flush=True)
+        print("[Radio] Bot left or kicked. Preserving position and rejoining immediately...", flush=True)
         self.joined = False
-        self.persist_state()
-        time.sleep(2)
+        try:
+            self.persist_state()
+        except Exception:
+            pass
         self.doJoinChannelByID(RADIO_CHAN_ID, "")
 
     def onStreamMediaFile(self, mediafileinfo):
@@ -3666,224 +3851,37 @@ def start_radio_worker():
                     print(f"[Radio] Loop err: {e}", flush=True)
                     time.sleep(1)
 
-            print("[Radio] Restart requested. Disconnecting and restarting bot instance...", flush=True)
+            print("[Radio] Restart requested. Disconnecting, releasing TeamTalk C-instance, and restarting...", flush=True)
             try:
                 bot.stop_all_playback()
-                time.sleep(0.5)
+                time.sleep(0.2)
                 bot.disconnect()
-                time.sleep(2)
+                time.sleep(0.5)
+                if hasattr(bot, "closeTeamTalk"):
+                    bot.closeTeamTalk()
             except Exception as e:
-                print(f"[Radio] Disconnect err during restart: {e}", flush=True)
+                print(f"[Radio] Disconnect/close err during restart: {e}", flush=True)
+            time.sleep(1)
 
         except Exception as e:
             print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
             time.sleep(3)
 
-def run_health_server():
-    port = int(os.environ.get("PORT", 10000))
-    class HealthHandler(http.server.SimpleHTTPRequestHandler):
-        def do_GET(self):
-            import ctypes
-            if self.path == "/restart_radio":
-                b = global_radio_bot
-                if b:
-                    b.persist_state()
-                    b.restart_requested = True
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(b"Radio restart requested")
-                return
-            if self.path == "/reboot_process":
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"Rebooting process...")
-                import threading
-                threading.Thread(target=lambda: (time.sleep(0.5), os._exit(0)), daemon=True).start()
-                return
-            if self.path == "/probe_voice":
-                b = global_radio_bot
-                if not b:
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(b"No bot")
-                    return
-                try:
-                    chan = b.getChannel(RADIO_CHAN_ID)
-                    codec_type = getattr(chan.audiocodec, "nCodec", -1)
-                    opus_sr = 0
-                    opus_ch = 0
-                    opus_br = 0
-                    if codec_type == TeamTalk5.Codec.OPUS_CODEC:
-                        opus_sr = getattr(chan.audiocodec.opus, "nSampleRate", 0)
-                        opus_ch = getattr(chan.audiocodec.opus, "nChannels", 0)
-                        opus_br = getattr(chan.audiocodec.opus, "nBitRate", 0)
-                    res = {
-                        "flags": hex(b.getFlags()),
-                        "chan_codec": codec_type,
-                        "opus_sr": opus_sr,
-                        "opus_ch": opus_ch,
-                        "opus_br": opus_br,
-                        "diag": b.diag[-10:],
-                        "is_streaming": b.is_streaming,
-                    }
-                    
-                    # Test insertAudioBlock with enableVoiceTransmission(False)
-                    b.enableVoiceTransmission(False)
-                    time.sleep(0.05)
-                    res["flags_after_tx_false"] = hex(b.getFlags())
-                    
-                    # Test stereo 960 (3840 bytes)
-                    raw_data_s = bytes(3840)
-                    buf_s = (ctypes.c_byte * 3840).from_buffer_copy(raw_data_s)
-                    ab_s = TeamTalk5.AudioBlock()
-                    ab_s.nStreamID = 1
-                    ab_s.nSampleRate = 48000
-                    ab_s.nChannels = 2
-                    ab_s.nSamples = 960
-                    ab_s.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
-                    ab_s.lpRawAudio = ctypes.cast(buf_s, ctypes.c_void_p)
-                    res["ins_stereo_960"] = b.insertAudioBlock(ab_s)
-                    
-                    # Test mono 960 (1920 bytes)
-                    raw_data_m = bytes(1920)
-                    buf_m = (ctypes.c_byte * 1920).from_buffer_copy(raw_data_m)
-                    ab_m = TeamTalk5.AudioBlock()
-                    ab_m.nStreamID = 1
-                    ab_m.nSampleRate = 48000
-                    ab_m.nChannels = 1
-                    ab_m.nSamples = 960
-                    ab_m.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
-                    ab_m.lpRawAudio = ctypes.cast(buf_m, ctypes.c_void_p)
-                    res["ins_mono_960"] = b.insertAudioBlock(ab_m)
-                    
-                    b.insertAudioBlock(None)
-                    
-                    self.send_response(200)
-                    self.send_header("Content-type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
-                    return
-                except Exception as e:
-                    self.send_response(200)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(f"Probe err: {e}".encode('utf-8'))
-                    return
-            if self.path == "/radio_status":
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(get_radio_status().encode('utf-8'))
-                return
-            if self.path == "/test_tt_sdk":
-                ok, msg = ensure_linux_tt_sdk()
-                load_msg = ""
-                if ok:
-                    try:
-                        import ctypes
-                        dll = ctypes.cdll.LoadLibrary("./libTeamTalk5.so")
-                        dll.TT_InitTeamTalkPoll.restype = ctypes.c_void_p
-                        res = dll.TT_InitTeamTalkPoll()
-                        load_msg = f"SUCCESS! TTInstance: {res}"
-                        dll.TT_CloseTeamTalk.argtypes = [ctypes.c_void_p]
-                        dll.TT_CloseTeamTalk(res)
-                    except Exception as e:
-                        load_msg = f"Load failed: {e}"
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(f"Ensure: {ok} ({msg})\nLoad: {load_msg}".encode('utf-8'))
-                return
-            if self.path == "/server_info":
-                b = global_radio_bot
-                if not b or not b.connected:
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(b"Bot not connected")
-                    return
-                try:
-                    chans = []
-                    for cid in range(1, 40):
-                        try:
-                            c = b.getChannel(cid)
-                            if c.nChannelID == cid:
-                                chans.append({
-                                    "nChannelID": c.nChannelID,
-                                    "nParentID": c.nParentID,
-                                    "szName": TeamTalk5.ttstr(c.szName),
-                                    "szTopic": TeamTalk5.ttstr(c.szTopic),
-                                    "uChannelType": c.uChannelType,
-                                    "nDiskQuota": c.nDiskQuota,
-                                    "nMaxUsers": c.nMaxUsers,
-                                })
-                        except Exception:
-                            pass
-                    users_raw = b.getServerUsers()
-                    users = []
-                    for u in users_raw:
-                        users.append({
-                            "nUserID": u.nUserID,
-                            "szNickname": TeamTalk5.ttstr(u.szNickname),
-                            "szUsername": TeamTalk5.ttstr(u.szUsername),
-                            "nChannelID": u.nChannelID,
-                        })
-                    res_data = {"channels": chans, "users": users}
-                    self.send_response(200)
-                    self.send_header("Content-type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps(res_data, ensure_ascii=False, indent=2).encode('utf-8'))
-                    return
-                except Exception as e:
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(f"Err: {e}".encode('utf-8'))
-                    return
-            if self.path == "/test_splus":
-                url = f"https://api.splus.ir/bot{SPLUS_TOKEN}/getMe"
-                try:
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        res = resp.read().decode('utf-8')
-                        self.send_response(200)
-                        self.send_header("Content-type", "text/plain; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(f"SPLUS OK: {res}".encode('utf-8'))
-                except Exception as e:
-                    self.send_response(200)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(f"SPLUS ERR: {e}".encode('utf-8'))
-                return
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("ربات کافه دوستی به صورت ۲۴ ساعته در تلگرام و سروش فعال است.".encode('utf-8'))
-        def log_message(self, format, *args):
-            pass
-    try:
-        with socketserver.TCPServer(("", port), HealthHandler) as httpd:
-            print(f"سرور سلامت روی پورت {port} فعال شد.", flush=True)
-            httpd.serve_forever()
-    except Exception as e:
-        print(f"خطای سرور سلامت: {e}", flush=True)
 
-threading.Thread(target=run_health_server, daemon=True).start()
 
 # ----------------- سیستم دیده‌بان و پایش خودکار ربات ناظر (Watchdog Engine) -----------------
 def run_supervisor_watchdog():
-    """حلقه پایش و دیده‌بان خودکار ربات ناظر (Watchdog)
-    به طور پیوسته وضعیت ربات‌های ثبت شده را پایش کرده و در صورت خروج یا قطعی،
-    بلافاصله و به صورت کاملاً خودکار و بدون ارسال پیام اضافه آن‌ها را به سرور بازمی‌گرداند."""
-    print("دیده‌بان خودکار ربات ناظر (Watchdog Engine) فعال شد و در حال پایش ربات‌هاست...", flush=True)
-    time.sleep(15)  # مهلت اولیه برای راه‌اندازی کامل سرویس‌ها
+    """حلقه پایش و دیده‌بان خودکار ربات ناظر (Watchdog Engine)
+    به طور پیوسته وضعیت ربات رادیو را پایش کرده و در صورت هرگونه قطعی، اخراج،
+    یا خروج، بدون وقفه و در سریع‌ترین زمان آن را به کانال ۲ بازگردانده و موزیک را ادامه می‌دهد."""
+    print("دیده‌بان خودکار ربات ناظر (Watchdog Engine) فعال شد و در حال پایش وضعیت ربات‌هاست...", flush=True)
+    time.sleep(5)
     while True:
         try:
-            b = global_radio_bot
+            b = globals().get("global_radio_bot")
             if b:
                 age = time.time() - getattr(b, "created_at", 0)
-                # مهلت ۳۰ ثانیه‌ای برای استارتاپ اولیه ربات جهت اتصال خودکار
-                if age > 30:
+                if age > 10:
                     try:
                         flags = b.getFlags()
                     except Exception:
@@ -3892,27 +3890,28 @@ def run_supervisor_watchdog():
                     is_connected = (flags & 0x00004000) != 0
 
                     if not is_connected:
-                        # اگر پس از مهلت اولیه یا پس از قطعی، هنوز وصل نشده
-                        if not getattr(b, "restart_requested", False):
-                            print("[Watchdog] ربات ناظر عدم اتصال رادیو را تایید کرد. احیای خودکار...", flush=True)
+                        print("[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
+                        try:
                             b.persist_state()
-                            b.restart_requested = True
+                        except Exception:
+                            pass
+                        b.restart_requested = True
                     elif not getattr(b, "joined", False):
-                        # متصل است ولی در اتاق ۲ نیست -> دستور ورود فوری صادر می‌کند
                         try:
                             b.doJoinChannelByID(RADIO_CHAN_ID, "")
                         except Exception:
                             pass
-                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
-                        # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
-                        try:
-                            threading.Thread(target=b.auto_start_playback, daemon=True).start()
-                        except Exception:
-                            pass
+                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, "_is_starting_playback", False):
+                        if time.time() - getattr(b, "last_track_finish_at", 0) > 3:
+                            print("[Watchdog] رادیو در کانال ۲ است ولی موزیک متوقف است. ادامه خودکار پخش...", flush=True)
+                            try:
+                                threading.Thread(target=b.auto_start_playback, daemon=True).start()
+                            except Exception:
+                                pass
         except Exception as e:
             print(f"[Watchdog] Error in supervisor watchdog: {e}", flush=True)
 
-        time.sleep(15)
+        time.sleep(5)
 
 # ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
 def keep_alive_worker():
