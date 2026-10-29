@@ -2665,25 +2665,27 @@ class VoicePlayer:
         self.sample_rate = 48000
         self.channels = 2
         self.current_pos = 0
+        self.worker_id = 0
 
     def play(self, track_path, start_sec=0.0):
         self.stop()
         self.stop_event.clear()
-        self.thread = threading.Thread(target=self._play_worker, args=(track_path, start_sec), daemon=True)
+        self.worker_id += 1
+        current_id = self.worker_id
+        self.thread = threading.Thread(target=self._play_worker, args=(track_path, start_sec, current_id), daemon=True)
         self.thread.start()
 
     def stop(self):
         self.stop_event.set()
         if self.thread and self.thread.is_alive() and self.thread != threading.current_thread():
-            self.thread.join(timeout=0.8)
+            self.thread.join(timeout=1.0)
         try:
             self.bot.insertAudioBlock(None)
         except Exception:
             pass
 
-    def _play_worker(self, track_path, start_sec=0.0):
+    def _play_worker(self, track_path, start_sec=0.0, worker_id=0):
         try:
-            # 1. Inspect channel codec to match channels and sample rate
             chan_ch = 2
             chan_sr = 48000
             try:
@@ -2701,7 +2703,9 @@ class VoicePlayer:
             self.channels = chan_ch
             self.sample_rate = chan_sr
 
-            # 2. Decode track to PCM matching channel parameters
+            if self.stop_event.is_set() or worker_id != self.worker_id:
+                return
+
             raw_pcm = None
             try:
                 import miniaudio
@@ -2712,8 +2716,8 @@ class VoicePlayer:
                     sample_rate=self.sample_rate
                 )
                 raw_pcm = decoded.samples.tobytes()
-            except Exception as e:
-                print(f"[Radio] miniaudio decode err: {e}", flush=True)
+            except Exception:
+                pass
 
             if not raw_pcm:
                 try:
@@ -2724,41 +2728,43 @@ class VoicePlayer:
                 except Exception as e:
                     print(f"[Radio] ffmpeg decode err: {e}", flush=True)
 
+            if self.stop_event.is_set() or worker_id != self.worker_id:
+                return
+
             min_chunk = int(self.sample_rate * 0.02) * self.channels * 2
             if not raw_pcm or len(raw_pcm) < min_chunk:
                 print("[Radio] Direct Voice: Could not decode to PCM. Fallback to media file stream...", flush=True)
                 self.bot.stream_media_file_fallback(track_path)
                 return
 
-            print(f"[Radio] Direct Voice transmission started: {os.path.basename(track_path)} ({len(raw_pcm)} bytes PCM, {self.channels}ch, {self.sample_rate}Hz)", flush=True)
-            self.bot.diag.append("VOICE_TX_START")
-
-            # 3. CRITICAL: Make sure voice transmission from microphone device is OFF
-            # Per TeamTalk C-API: If CLIENT_TX_VOICE is active, TT_InsertAudioBlock() will fail.
-            try:
-                self.bot.enableVoiceTransmission(False)
-            except Exception as e:
-                print(f"[Radio] enableVoiceTransmission(False) err: {e}", flush=True)
-
-            self.bot.is_streaming = True
-            self.bot.update_player_title()
-
             samples_per_frame = int(self.sample_rate * 0.02)  # 960 for 20ms at 48kHz
             chunk_size = samples_per_frame * self.channels * 2
             total_len = len(raw_pcm)
-            
-            # Resume from start_sec if provided
+
             start_pos = int(start_sec * self.sample_rate) * self.channels * 2
             start_pos = (start_pos // chunk_size) * chunk_size
             if 0 < start_pos < total_len - (chunk_size * 50):
                 pos = start_pos
-                sample_index = int(start_sec * self.sample_rate)
                 print(f"[Radio] Resuming playback of {os.path.basename(track_path)} from {start_sec:.1f}s (byte {pos}/{total_len})", flush=True)
             else:
                 pos = 0
-                sample_index = 0
-            
+                start_sec = 0.0
+
+            # CRITICAL FIX: In TeamTalk AudioBlock, sample_index is the session packet sequence number.
+            # It MUST ALWAYS start at 0 so the TeamTalk jitter buffer receives clean, unbroken audio!
+            sample_index = 0
             self.current_pos = pos
+
+            try:
+                self.bot.enableVoiceTransmission(False)
+            except Exception:
+                pass
+
+            self.bot.is_streaming = True
+            sec_now = pos / (self.sample_rate * self.channels * 2)
+            self.bot.current_playback_sec = sec_now
+            self.bot.resume_pos_sec = sec_now
+            self.bot.update_player_title()
 
             buf_type = ctypes.c_byte * chunk_size
             ab = TeamTalk5.AudioBlock()
@@ -2768,7 +2774,6 @@ class VoicePlayer:
             ab.nSamples = samples_per_frame
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
 
-            # Disable DSP preprocessing (denoiser and AGC) so music fidelity is 100% natural
             try:
                 dsp = TeamTalk5.SpeexDSP()
                 dsp.bEnableAGC = False
@@ -2779,15 +2784,14 @@ class VoicePlayer:
             except Exception:
                 pass
 
-            # Pre-buffer 5 frames (100ms) to ensure jitter buffer is never starved
             for _ in range(5):
-                if pos < total_len and not self.stop_event.is_set():
+                if pos < total_len and not self.stop_event.is_set() and worker_id == self.worker_id:
                     chunk = raw_pcm[pos:pos + chunk_size]
                     pos += chunk_size
                     self.current_pos = pos
                     if len(chunk) < chunk_size:
                         chunk += bytes(chunk_size - len(chunk))
-                    
+
                     cur_vol = getattr(self.bot, "volume_percent", 100)
                     if cur_vol != 100:
                         try:
@@ -2805,17 +2809,15 @@ class VoicePlayer:
             first_logged = False
             failed_inserts = 0
             chunks_since_save = 0
-            
-            # Accurate drift-compensated clock for crystal-clear, uninterrupted voice transmission
+
             clock_start = time.perf_counter()
             frame_idx = 0
 
-            while pos < total_len and not self.stop_event.is_set():
+            while pos < total_len and not self.stop_event.is_set() and worker_id == self.worker_id:
                 chunk = raw_pcm[pos:pos + chunk_size]
                 pos += chunk_size
                 self.current_pos = pos
 
-                # Direct C-level sample scaling matching active volume setting with zero CPU overhead
                 cur_vol = getattr(self.bot, "volume_percent", 100)
                 if cur_vol != 100:
                     try:
@@ -2863,30 +2865,34 @@ class VoicePlayer:
                 if sleep_sec > 0.001:
                     time.sleep(sleep_sec)
                 elif sleep_sec < -0.2:
-                    # Resynchronize clock if OS stalled
                     clock_start = time.perf_counter()
                     frame_idx = 0
 
-            # End audio block transmission session cleanly
             try:
                 self.bot.insertAudioBlock(None)
             except Exception:
                 pass
 
             if self.stop_event.is_set():
-                sec = pos / (self.sample_rate * self.channels * 2)
-                self.bot.current_playback_sec = sec
-                self.bot.resume_pos_sec = sec
-                self.bot.persist_state()
-                print(f"[Radio] Playback paused/interrupted at {sec:.1f}s - position preserved.", flush=True)
+                if worker_id == self.worker_id:
+                    # Only save if this worker actually streamed audio beyond its start offset
+                    if pos > (start_pos + chunk_size * 25):
+                        sec = pos / (self.sample_rate * self.channels * 2)
+                        self.bot.current_playback_sec = sec
+                        self.bot.resume_pos_sec = sec
+                        self.bot.persist_state()
+                        print(f"[Radio] Playback paused/interrupted at {sec:.1f}s - position preserved.", flush=True)
+                    else:
+                        print(f"[Radio] Playback stopped before streaming. Preserving saved position {self.bot.resume_pos_sec:.1f}s", flush=True)
             else:
-                print("[Radio] Direct Voice track finished. Resetting position and playing next...", flush=True)
-                self.bot.current_playback_sec = 0.0
-                self.bot.resume_pos_sec = 0.0
-                self.bot.persist_state()
-                self.bot.is_streaming = False
-                self.bot.last_track_finish_at = time.time()
-                threading.Thread(target=self.bot.play_next, daemon=True).start()
+                if worker_id == self.worker_id:
+                    print("[Radio] Direct Voice track finished. Resetting position and playing next...", flush=True)
+                    self.bot.current_playback_sec = 0.0
+                    self.bot.resume_pos_sec = 0.0
+                    self.bot.persist_state()
+                    self.bot.is_streaming = False
+                    self.bot.last_track_finish_at = time.time()
+                    threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
             print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
@@ -2946,14 +2952,18 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.diag = []
         self.voice_player = VoicePlayer(self)
         self.syncing_catalog = False
+        self.play_lock = threading.Lock()
+        self._is_starting_playback = False
         self.restore_track_index()
 
     def persist_state(self):
         try:
-            cur_sec = getattr(self, "current_playback_sec", 0.0)
-            if hasattr(self, "voice_player") and getattr(self.voice_player, "current_pos", 0) > 0:
+            if getattr(self, "is_streaming", False) and hasattr(self, "voice_player") and getattr(self.voice_player, "current_pos", 0) > 0:
                 cur_sec = self.voice_player.current_pos / (self.voice_player.sample_rate * self.voice_player.channels * 2)
                 self.current_playback_sec = cur_sec
+                self.resume_pos_sec = cur_sec
+            else:
+                cur_sec = getattr(self, "resume_pos_sec", getattr(self, "current_playback_sec", 0.0))
 
             vol = getattr(self, "volume_percent", SAVED_RADIO_VOLUME)
             t_name = self.current_track.get("title", "") if self.current_track else getattr(self, "last_track_name", "")
@@ -2976,8 +2986,40 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             save_persistent_config("last_track_name", t_name)
             save_persistent_config("last_track_file", t_file)
             save_radio_state(state)
+            self.sync_state_to_server_note()
         except Exception as e:
             print(f"[Radio] persist_state err: {e}", flush=True)
+
+    def sync_state_to_server_note(self):
+        now = time.time()
+        if now - getattr(self, "_last_server_note_sync", 0) < 10:
+            return
+        self._last_server_note_sync = now
+        try:
+            cur_sec = getattr(self, "resume_pos_sec", 0.0)
+            t_file = getattr(self, "last_track_file", "")
+            vol = getattr(self, "volume_percent", 100)
+            idx = getattr(self, "current_index", 0)
+            note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
+
+            def _async_note():
+                try:
+                    s = socket.socket()
+                    s.settimeout(3.0)
+                    s.connect((RADIO_TT_HOST, RADIO_TT_PORT))
+                    nick = "همگام ساز".encode('utf-8')
+                    s.sendall(b'login nickname="' + nick + b'" username="admin" password="1234yal1234da12344321" protocol=5.6\r\n')
+                    time.sleep(0.2)
+                    cmd = f'updateaccount username="radio kaafehdoosti" note="{note_content}"\r\n'.encode('utf-8')
+                    s.sendall(cmd)
+                    time.sleep(0.2)
+                    s.sendall(b'logout\r\n')
+                    s.close()
+                except Exception:
+                    pass
+            threading.Thread(target=_async_note, daemon=True).start()
+        except Exception:
+            pass
 
     def restore_track_index(self):
         with self.lock:
@@ -3166,9 +3208,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         except Exception as e:
             print(f"[Radio] getUpdates poll err: {e}", flush=True)
 
-        if self.joined and not self.is_streaming and self.playlist:
-            start_at = getattr(self, "resume_pos_sec", 0.0)
-            threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
+        if self.joined and not getattr(self, "is_streaming", False) and self.playlist:
+            threading.Thread(target=self.auto_start_playback, daemon=True).start()
 
     def load_existing_cache(self):
         if not os.path.exists(RADIO_CACHE_DIR):
@@ -3226,7 +3267,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         except Exception as e:
             print(f"[Radio] send_chat error: {e}", flush=True)
 
+    def auto_start_playback(self):
+        with self.play_lock:
+            if getattr(self, "is_streaming", False) or getattr(self, "_is_starting_playback", False):
+                return
+            self._is_starting_playback = True
+
+        try:
+            self.cleanup_old_channel_files()
+            self.restore_track_index()
+            self.update_player_title()
+            if self.playlist and not getattr(self, "is_streaming", False):
+                start_at = getattr(self, "resume_pos_sec", 0.0)
+                print(f"[Radio] Auto-starting playback from saved position: {start_at:.1f}s", flush=True)
+                self.play_track(self.current_index, start_sec=start_at)
+        finally:
+            with self.play_lock:
+                self._is_starting_playback = False
+
     def play_track(self, index, start_sec=None):
+        self.stop_all_playback()
+
         with self.lock:
             if not self.playlist:
                 return
@@ -3237,16 +3298,14 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             else:
                 if start_sec is None:
                     start_sec = 0.0
-                    self.resume_pos_sec = 0.0
-                    self.current_playback_sec = 0.0
-            
+
             self.current_index = new_idx
             track = self.playlist[self.current_index]
             self.current_track = track
 
             if start_sec is None:
                 start_sec = 0.0
-            
+
             self.current_playback_sec = start_sec
             self.resume_pos_sec = start_sec
             self.persist_state()
@@ -3266,8 +3325,6 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.apply_current_volume()
         print(f"[Radio] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
         try:
-            self.stop_all_playback()
-            time.sleep(0.1)
             self.voice_player.play(track_path, start_sec=start_sec)
         except Exception as e:
             print(f"[Radio] Playback launch error: {e}", flush=True)
@@ -3418,7 +3475,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.my_user_id = my_id
         self.apply_current_volume()
         self.doChangeNickname(RADIO_TT_NICK)
-        
+
+        # Restore state from server account note if local position is 0
+        try:
+            if user_account and hasattr(user_account, "szNote"):
+                note_str = TeamTalk5.ttstr(user_account.szNote).strip()
+                if note_str.startswith("STATE:"):
+                    parts = dict(kv.split("=", 1) for kv in note_str[6:].split(";") if "=" in kv)
+                    s_pos = float(parts.get("POS", 0.0))
+                    s_trk = parts.get("TRK", "")
+                    s_idx = int(parts.get("IDX", -1))
+                    if getattr(self, "resume_pos_sec", 0.0) <= 0.0 and s_pos > 0.0:
+                        self.resume_pos_sec = s_pos
+                        self.current_playback_sec = s_pos
+                        if s_idx >= 0:
+                            self.current_index = s_idx
+                        if s_trk:
+                            self.last_track_file = s_trk
+                        print(f"[Radio] Restored cold-start state from TeamTalk account note: pos={s_pos:.1f}s, trk={s_trk}", flush=True)
+        except Exception as e:
+            print(f"[Radio] Account note restore err: {e}", flush=True)
+
         my_chan = 0
         try:
             u = self.getUser(my_id)
@@ -3426,16 +3503,11 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 my_chan = u.nChannelID
         except Exception:
             pass
-            
+
         if my_chan == RADIO_CHAN_ID:
             print(f"[Radio] Already in channel {RADIO_CHAN_ID} via initchan!", flush=True)
             self.joined = True
-            self.cleanup_old_channel_files()
-            self.restore_track_index()
-            self.update_player_title()
-            if self.playlist and not self.is_streaming:
-                start_at = getattr(self, "resume_pos_sec", 0.0)
-                threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
+            threading.Thread(target=self.auto_start_playback, daemon=True).start()
         else:
             res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
             self.diag.append(f"JOIN_CMD:{res}")
@@ -3447,13 +3519,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
             self.joined = True
             self.apply_current_volume()
-            self.cleanup_old_channel_files()
-            self.restore_track_index()
-            self.update_player_title()
-            if self.playlist and not self.is_streaming:
-                start_at = getattr(self, "resume_pos_sec", 0.0)
-                print(f"[Radio] Auto-resuming track {self.current_index + 1} at {start_at:.1f}s", flush=True)
-                threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
+            threading.Thread(target=self.auto_start_playback, daemon=True).start()
 
     def onCmdMyselfKickedFromChannel(self, nSource, user):
         print("[Radio] Bot left or kicked. Preserving position and rejoining...", flush=True)
@@ -3836,8 +3902,7 @@ def run_supervisor_watchdog():
                     elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
                         # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
                         try:
-                            start_at = getattr(b, "resume_pos_sec", 0.0)
-                            threading.Thread(target=b.play_track, args=(b.current_index, start_at), daemon=True).start()
+                            threading.Thread(target=b.auto_start_playback, daemon=True).start()
                         except Exception:
                             pass
         except Exception as e:
