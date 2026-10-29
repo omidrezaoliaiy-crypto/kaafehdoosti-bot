@@ -3698,6 +3698,15 @@ def run_health_server():
                     self.end_headers()
                     self.wfile.write(f"Probe err: {e}".encode('utf-8'))
                     return
+            if self.path.startswith("/check_fid"):
+                b = global_radio_bot
+                fid = BASE_TRACK_CATALOG[0]["file_id"] if BASE_TRACK_CATALOG else ""
+                res = b.tg_api("getFile", {"file_id": fid}) if b else {"err": "no bot"}
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                return
             if self.path == "/radio_status":
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain; charset=utf-8")
