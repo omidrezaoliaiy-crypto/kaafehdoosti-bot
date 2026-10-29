@@ -2926,6 +2926,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
         self.voice_player = VoicePlayer(self)
+        self.syncing_catalog = True
 
     def persist_state(self):
         try:
@@ -3145,6 +3146,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[Radio] getUpdates poll err: {e}", flush=True)
 
         # 3. Playlist fully loaded: restore index and auto-resume playback
+        self.syncing_catalog = False
         with self.lock:
             self.restore_track_index()
 
@@ -3172,6 +3174,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                             "path": path
                         })
         print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
+        if len(self.playlist) >= len(BASE_TRACK_CATALOG):
+            self.syncing_catalog = False
         self.restore_track_index()
 
     def update_player_title(self):
@@ -3404,7 +3408,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
-            if self.playlist and not self.is_streaming:
+            if self.playlist and not self.is_streaming and not getattr(self, 'syncing_catalog', False):
                 start_at = getattr(self, "resume_pos_sec", 0.0)
                 threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
         else:
@@ -3421,7 +3425,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
-            if self.playlist and not self.is_streaming:
+            if self.playlist and not self.is_streaming and not getattr(self, 'syncing_catalog', False):
                 start_at = getattr(self, "resume_pos_sec", 0.0)
                 print(f"[Radio] Auto-resuming track {self.current_index + 1} at {start_at:.1f}s", flush=True)
                 threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
@@ -3804,7 +3808,7 @@ def run_supervisor_watchdog():
                             b.doJoinChannelByID(RADIO_CHAN_ID, "")
                         except Exception:
                             pass
-                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
+                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, 'syncing_catalog', False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
                         # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
                         try:
                             start_at = getattr(b, "resume_pos_sec", 0.0)
