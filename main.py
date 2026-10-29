@@ -3073,7 +3073,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             url += "?" + urllib.parse.urlencode(params)
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with self.opener.open(req, timeout=15) as r:
+            with urllib.request.urlopen(req, timeout=15) as r:
                 return json.loads(r.read().decode())
         except Exception as e:
             print(f"[Radio] TG API {method} error: {e}", flush=True)
@@ -3086,9 +3086,11 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 return False
             file_path = finfo["result"]["file_path"]
             download_url = f"https://api.telegram.org/file/bot{RADIO_TG_TOKEN}/{file_path}"
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with self.opener.open(req, timeout=60) as resp, open(dest_path, "wb") as f:
-                f.write(resp.read())
+            import shutil
+            with urllib.request.urlopen(req, timeout=60) as resp, open(dest_path, "wb") as f:
+                shutil.copyfileobj(resp, f)
             return True
         except Exception as e:
             print(f"[Radio] Download error: {e}", flush=True)
@@ -3698,22 +3700,6 @@ def run_health_server():
                     self.end_headers()
                     self.wfile.write(f"Probe err: {e}".encode('utf-8'))
                     return
-            if self.path.startswith("/check_fid"):
-                fid = BASE_TRACK_CATALOG[0]["file_id"] if BASE_TRACK_CATALOG else ""
-                url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/getFile?file_id={fid}"
-                try:
-                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        res = json.loads(resp.read().decode())
-                except urllib.error.HTTPError as e:
-                    res = {"http_error": e.code, "msg": e.read().decode("utf-8", errors="ignore")}
-                except Exception as e:
-                    res = {"generic_error": str(e)}
-                self.send_response(200)
-                self.send_header("Content-type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
-                return
             if self.path == "/radio_status":
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain; charset=utf-8")
