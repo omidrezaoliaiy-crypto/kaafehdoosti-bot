@@ -2607,12 +2607,32 @@ def load_saved_radio_state():
         except Exception:
             pass
 
+    db_pos = load_persistent_config("playback_pos_sec", None)
+    pos_sec = 0.0
+    if db_pos is not None:
+        try:
+            pos_sec = float(db_pos)
+        except Exception:
+            pass
+
+    db_idx = load_persistent_config("current_index", None)
+    cur_idx = 0
+    if db_idx is not None:
+        try:
+            cur_idx = int(db_idx)
+        except Exception:
+            pass
+
+    db_track = load_persistent_config("last_track_name", "") or ""
+    db_file = load_persistent_config("last_track_file", "") or ""
+
     defaults = {
         "volume_percent": SAVED_RADIO_VOLUME,
         "title_hidden": False,
-        "last_track_name": "Milad Rastaad موزیکدل - Refigh موزیکدل",
-        "current_index": 5,
-        "playback_pos_sec": 0.0
+        "last_track_name": db_track,
+        "last_track_file": db_file,
+        "current_index": cur_idx,
+        "playback_pos_sec": pos_sec
     }
     if os.path.exists(RADIO_STATE_FILE):
         try:
@@ -2621,23 +2641,21 @@ def load_saved_radio_state():
                 defaults.update(data)
                 if "volume_percent" in data:
                     SAVED_RADIO_VOLUME = data["volume_percent"]
-                print(f"[Radio] Loaded state: {defaults}", flush=True)
         except Exception as e:
             print(f"[Radio] Load state err: {e}", flush=True)
+    print(f"[Radio] Loaded persistent radio state: {defaults}", flush=True)
     return defaults
 
 def save_radio_state(state):
-    def _do_write():
-        try:
-            tmp_path = RADIO_STATE_FILE + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, ensure_ascii=False, indent=2)
-                f.flush()
-            if os.path.exists(tmp_path):
-                os.replace(tmp_path, RADIO_STATE_FILE)
-        except Exception as e:
-            print(f"[Radio] Save state err: {e}", flush=True)
-    threading.Thread(target=_do_write, daemon=True).start()
+    try:
+        tmp_path = RADIO_STATE_FILE + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+            f.flush()
+        if os.path.exists(tmp_path):
+            os.replace(tmp_path, RADIO_STATE_FILE)
+    except Exception as e:
+        print(f"[Radio] Save state err: {e}", flush=True)
 
 class VoicePlayer:
     def __init__(self, bot):
@@ -2807,7 +2825,7 @@ class VoicePlayer:
                         pass
 
                 chunks_since_save += 1
-                if chunks_since_save >= 250:  # Save position every 5.0s (asynchronously, zero disk latency)
+                if chunks_since_save >= 100:  # Save position every 2.0s
                     chunks_since_save = 0
                     sec = pos / (self.sample_rate * self.channels * 2)
                     self.bot.current_playback_sec = sec
@@ -2892,6 +2910,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.volume_percent = saved.get("volume_percent", 25)
         self.title_hidden = saved.get("title_hidden", False)
         self.last_track_name = saved.get("last_track_name", "")
+        self.last_track_file = saved.get("last_track_file", "")
         self.saved_current_index = saved.get("current_index", 0)
         self.current_index = self.saved_current_index
         self.current_playback_sec = saved.get("playback_pos_sec", 0.0)
@@ -2914,15 +2933,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if hasattr(self, "voice_player") and getattr(self.voice_player, "current_pos", 0) > 0:
                 cur_sec = self.voice_player.current_pos / (self.voice_player.sample_rate * self.voice_player.channels * 2)
                 self.current_playback_sec = cur_sec
+
             vol = getattr(self, "volume_percent", SAVED_RADIO_VOLUME)
+            t_name = self.current_track.get("title", "") if self.current_track else getattr(self, "last_track_name", "")
+            t_file = os.path.basename(self.current_track.get("path", "")) if self.current_track else getattr(self, "last_track_file", "")
+
             state = {
                 "volume_percent": vol,
                 "title_hidden": self.title_hidden,
                 "current_index": self.current_index,
-                "last_track_name": self.current_track.get("title", "") if self.current_track else self.last_track_name,
+                "last_track_name": t_name,
+                "last_track_file": t_file,
                 "playback_pos_sec": round(cur_sec, 2)
             }
+            self.last_track_name = t_name
+            self.last_track_file = t_file
+
             save_persistent_config("volume_percent", vol)
+            save_persistent_config("current_index", self.current_index)
+            save_persistent_config("playback_pos_sec", round(cur_sec, 2))
+            save_persistent_config("last_track_name", t_name)
+            save_persistent_config("last_track_file", t_file)
             save_radio_state(state)
         except Exception as e:
             print(f"[Radio] persist_state err: {e}", flush=True)
@@ -2931,20 +2962,45 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         with self.lock:
             if not self.playlist:
                 return
-            # اگر در حال پخش است، هرگز نباید ایندکس قطعه در حال خواندن تغییر کند
             if getattr(self, "is_streaming", False) and getattr(self, "current_track", None):
                 for idx, t in enumerate(self.playlist):
                     if t.get("path") == self.current_track.get("path"):
                         self.current_index = idx
                         return
-            if self.last_track_name:
+
+            # 1. Match by last_track_file (exact file match)
+            target_file = getattr(self, "last_track_file", "")
+            if target_file:
                 for idx, t in enumerate(self.playlist):
-                    if t.get("title") == self.last_track_name:
+                    if os.path.basename(t.get("path", "")) == target_file:
                         self.current_index = idx
-                        print(f"[Radio] Restored track to index {idx} ({self.last_track_name})", flush=True)
+                        print(f"[Radio] Restored track by filename to index {idx}: {target_file}", flush=True)
                         return
-            if 0 <= self.saved_current_index < len(self.playlist):
-                self.current_index = self.saved_current_index
+
+            # 2. Match by last_track_name
+            target_name = getattr(self, "last_track_name", "")
+            if target_name:
+                for idx, t in enumerate(self.playlist):
+                    if t.get("title") == target_name:
+                        self.current_index = idx
+                        print(f"[Radio] Restored track by title to index {idx}: {target_name}", flush=True)
+                        return
+
+                def norm(s):
+                    return re.sub(r'[^a-zA-Z0-9\u0600-\u06FF]', '', str(s).lower())
+
+                nt = norm(target_name)
+                if nt:
+                    for idx, t in enumerate(self.playlist):
+                        if nt in norm(t.get("title", "")) or norm(t.get("title", "")) in nt:
+                            self.current_index = idx
+                            print(f"[Radio] Restored track by normalized match to index {idx}: {t.get('title')}", flush=True)
+                            return
+
+            # 3. Match by saved_current_index
+            saved_idx = getattr(self, "saved_current_index", 0)
+            if 0 <= saved_idx < len(self.playlist):
+                self.current_index = saved_idx
                 print(f"[Radio] Restored track to saved index {self.current_index}", flush=True)
 
     def apply_current_volume(self):
@@ -3038,15 +3094,10 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                     with self.lock:
                         if not any(x["path"] == dest_path for x in self.playlist):
                             self.playlist.append(track_info)
-                            print(f"[Radio] Catalog track ready: {display_name} ({len(self.playlist)} tracks)", flush=True)
-                            if self.joined and not self.is_streaming:
-                                threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
             else:
                 with self.lock:
                     if not any(t["path"] == dest_path for t in self.playlist):
                         self.playlist.append(track_info)
-                        if self.joined and not self.is_streaming:
-                            threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
 
         # 2. Check getUpdates for any brand new tracks posted by users
         try:
@@ -3081,9 +3132,6 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                             if not any(x["path"] == dest_path for x in self.playlist):
                                 self.playlist.append(track_info)
                                 added_any = True
-                                print(f"[Radio] Added user track: {display_name}", flush=True)
-                                if self.joined and not self.is_streaming:
-                                    threading.Thread(target=self.play_track, args=(self.current_index,), daemon=True).start()
                 else:
                     with self.lock:
                         if not any(t["path"] == dest_path for t in self.playlist):
@@ -3093,10 +3141,19 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if max_uid > 0:
                 self.tg_api("getUpdates", {"offset": max_uid + 1})
 
-            if added_any and self.joined:
-                self.update_player_title()
         except Exception as e:
             print(f"[Radio] getUpdates poll err: {e}", flush=True)
+
+        # 3. Playlist fully loaded: restore index and auto-resume playback
+        with self.lock:
+            self.restore_track_index()
+
+        if self.joined and not self.is_streaming and self.playlist:
+            start_at = getattr(self, "resume_pos_sec", 0.0)
+            print(f"[Radio] Starting/resuming playback of track {self.current_index + 1} at {start_at:.1f}s", flush=True)
+            threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
+        elif self.joined:
+            self.update_player_title()
 
     def load_existing_cache(self):
         if not os.path.exists(RADIO_CACHE_DIR):
@@ -3157,19 +3214,24 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if not self.playlist:
                 return
             new_idx = index % len(self.playlist)
-            if new_idx != self.current_index:
-                start_sec = 0.0
-                self.resume_pos_sec = 0.0
-                self.current_playback_sec = 0.0
+            if new_idx == self.current_index:
+                if start_sec is None:
+                    start_sec = getattr(self, "resume_pos_sec", 0.0)
+            else:
+                if start_sec is None:
+                    start_sec = 0.0
+                    self.resume_pos_sec = 0.0
+                    self.current_playback_sec = 0.0
             
             self.current_index = new_idx
             track = self.playlist[self.current_index]
             self.current_track = track
 
             if start_sec is None:
-                start_sec = getattr(self, "resume_pos_sec", 0.0)
+                start_sec = 0.0
             
             self.current_playback_sec = start_sec
+            self.resume_pos_sec = start_sec
             self.persist_state()
 
         self.apply_current_volume()
@@ -3745,7 +3807,8 @@ def run_supervisor_watchdog():
                     elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
                         # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
                         try:
-                            threading.Thread(target=b.play_track, args=(b.current_index,), daemon=True).start()
+                            start_at = getattr(b, "resume_pos_sec", 0.0)
+                            threading.Thread(target=b.play_track, args=(b.current_index, start_at), daemon=True).start()
                         except Exception:
                             pass
         except Exception as e:
