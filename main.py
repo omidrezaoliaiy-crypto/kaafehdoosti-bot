@@ -2904,7 +2904,26 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.connected = False
         self.logged_in = False
         self.joined = False
+        
+        # Pre-populate playlist immediately from BASE_TRACK_CATALOG for instant startup and immediate title
         self.playlist = []
+        for item in BASE_TRACK_CATALOG:
+            mid = item.get("msg_id", 0)
+            fid = item.get("file_id")
+            title = item.get("title") or f"track_{mid}"
+            performer = item.get("performer") or ""
+            clean_title = "".join(c for c in title if c.isalnum() or c in " ._-()").strip()
+            if not clean_title.endswith(".mp3"):
+                clean_title += ".mp3"
+            dest_filename = f"{mid}_{clean_title}"
+            dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
+            display_name = f"{performer} - {title}".strip(" -")
+            self.playlist.append({
+                "msg_id": mid,
+                "title": display_name,
+                "path": dest_path,
+                "file_id": fid
+            })
         
         saved = load_saved_radio_state()
         self.volume_percent = saved.get("volume_percent", 25)
@@ -2926,7 +2945,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.diag = []
         self.voice_player = VoicePlayer(self)
-        self.syncing_catalog = True
+        self.syncing_catalog = False
+        self.restore_track_index()
 
     def persist_state(self):
         try:
@@ -3075,7 +3095,19 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return False
 
     def sync_telegram_playlist(self):
-        # 1. Download and ensure all catalog tracks are available
+        # 1. Pre-download the next track first so track transitions are instantaneous
+        try:
+            with self.lock:
+                next_i = self.get_next_track_index() if self.playlist else 0
+                next_t = self.playlist[next_i] if self.playlist else None
+            if next_t and next_t.get("file_id"):
+                n_path = next_t.get("path")
+                if not os.path.exists(n_path) or os.path.getsize(n_path) == 0:
+                    self.download_tg_file(next_t["file_id"], n_path)
+        except Exception as e:
+            print(f"[Radio] Next track prefetch err: {e}", flush=True)
+
+        # 2. Ensure all catalog tracks are cached in background
         for item in BASE_TRACK_CATALOG:
             mid = item.get("msg_id", 0)
             fid = item.get("file_id")
@@ -3086,21 +3118,11 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 clean_title += ".mp3"
             dest_filename = f"{mid}_{clean_title}"
             dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
-            display_name = f"{performer} - {title}".strip(" -")
-            track_info = {"msg_id": mid, "title": display_name, "path": dest_path}
 
             if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
-                print(f"[Radio] Downloading catalog track: {display_name}", flush=True)
-                if self.download_tg_file(fid, dest_path):
-                    with self.lock:
-                        if not any(x["path"] == dest_path for x in self.playlist):
-                            self.playlist.append(track_info)
-            else:
-                with self.lock:
-                    if not any(t["path"] == dest_path for t in self.playlist):
-                        self.playlist.append(track_info)
+                self.download_tg_file(fid, dest_path)
 
-        # 2. Check getUpdates for any brand new tracks posted by users
+        # 3. Check getUpdates for any brand new tracks posted by users
         try:
             updates = self.tg_api("getUpdates", {"limit": 50})
             added_any = False
@@ -3124,38 +3146,27 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 dest_filename = f"{cp['message_id']}_{clean_title}"
                 dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
                 display_name = f"{performer} - {title}".strip(" -")
-                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path}
+                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path, "file_id": file_id}
+
+                with self.lock:
+                    if not any(x["path"] == dest_path for x in self.playlist):
+                        self.playlist.append(track_info)
+                        added_any = True
 
                 if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
-                    print(f"[Radio] Downloading new user track: {display_name}", flush=True)
-                    if self.download_tg_file(file_id, dest_path):
-                        with self.lock:
-                            if not any(x["path"] == dest_path for x in self.playlist):
-                                self.playlist.append(track_info)
-                                added_any = True
-                else:
-                    with self.lock:
-                        if not any(t["path"] == dest_path for t in self.playlist):
-                            self.playlist.append(track_info)
-                            added_any = True
+                    self.download_tg_file(file_id, dest_path)
 
             if max_uid > 0:
                 self.tg_api("getUpdates", {"offset": max_uid + 1})
 
+            if added_any and self.joined:
+                self.update_player_title()
         except Exception as e:
             print(f"[Radio] getUpdates poll err: {e}", flush=True)
 
-        # 3. Playlist fully loaded: restore index and auto-resume playback
-        self.syncing_catalog = False
-        with self.lock:
-            self.restore_track_index()
-
         if self.joined and not self.is_streaming and self.playlist:
             start_at = getattr(self, "resume_pos_sec", 0.0)
-            print(f"[Radio] Starting/resuming playback of track {self.current_index + 1} at {start_at:.1f}s", flush=True)
             threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
-        elif self.joined:
-            self.update_player_title()
 
     def load_existing_cache(self):
         if not os.path.exists(RADIO_CACHE_DIR):
@@ -3238,12 +3249,24 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.resume_pos_sec = start_sec
             self.persist_state()
 
+        track_path = track.get("path")
+        file_id = track.get("file_id")
+        if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
+            if file_id:
+                print(f"[Radio] Downloading active track on-demand: {track['title']}", flush=True)
+                self.download_tg_file(file_id, track_path)
+
+        if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
+            print(f"[Radio] Track file not ready for {track['title']}. Advancing to next...", flush=True)
+            self.play_next()
+            return
+
         self.apply_current_volume()
         print(f"[Radio] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
         try:
             self.stop_all_playback()
-            time.sleep(0.2)
-            self.voice_player.play(track["path"], start_sec=start_sec)
+            time.sleep(0.1)
+            self.voice_player.play(track_path, start_sec=start_sec)
         except Exception as e:
             print(f"[Radio] Playback launch error: {e}", flush=True)
             self.diag.append(f"PLAY_ERR:{type(e).__name__}")
@@ -3408,7 +3431,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
-            if self.playlist and not self.is_streaming and not getattr(self, 'syncing_catalog', False):
+            if self.playlist and not self.is_streaming:
                 start_at = getattr(self, "resume_pos_sec", 0.0)
                 threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
         else:
@@ -3425,7 +3448,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
-            if self.playlist and not self.is_streaming and not getattr(self, 'syncing_catalog', False):
+            if self.playlist and not self.is_streaming:
                 start_at = getattr(self, "resume_pos_sec", 0.0)
                 print(f"[Radio] Auto-resuming track {self.current_index + 1} at {start_at:.1f}s", flush=True)
                 threading.Thread(target=self.play_track, args=(self.current_index, start_at), daemon=True).start()
@@ -3808,7 +3831,7 @@ def run_supervisor_watchdog():
                             b.doJoinChannelByID(RADIO_CHAN_ID, "")
                         except Exception:
                             pass
-                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, 'syncing_catalog', False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
+                    elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and (time.time() - getattr(b, "last_track_finish_at", 0) > 5):
                         # در اتاق است ولی موزیک متوقف مانده -> پخش را ادامه می‌دهد
                         try:
                             start_at = getattr(b, "resume_pos_sec", 0.0)
