@@ -2986,40 +2986,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             save_persistent_config("last_track_name", t_name)
             save_persistent_config("last_track_file", t_file)
             save_radio_state(state)
-            self.sync_state_to_server_note()
         except Exception as e:
             print(f"[Radio] persist_state err: {e}", flush=True)
-
-    def sync_state_to_server_note(self):
-        now = time.time()
-        if now - getattr(self, "_last_server_note_sync", 0) < 10:
-            return
-        self._last_server_note_sync = now
-        try:
-            cur_sec = getattr(self, "resume_pos_sec", 0.0)
-            t_file = getattr(self, "last_track_file", "")
-            vol = getattr(self, "volume_percent", 100)
-            idx = getattr(self, "current_index", 0)
-            note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
-
-            def _async_note():
-                try:
-                    s = socket.socket()
-                    s.settimeout(3.0)
-                    s.connect((RADIO_TT_HOST, RADIO_TT_PORT))
-                    nick = "همگام ساز".encode('utf-8')
-                    s.sendall(b'login nickname="' + nick + b'" username="admin" password="1234yal1234da12344321" protocol=5.6\r\n')
-                    time.sleep(0.2)
-                    cmd = f'updateaccount username="radio kaafehdoosti" note="{note_content}"\r\n'.encode('utf-8')
-                    s.sendall(cmd)
-                    time.sleep(0.2)
-                    s.sendall(b'logout\r\n')
-                    s.close()
-                except Exception:
-                    pass
-            threading.Thread(target=_async_note, daemon=True).start()
-        except Exception:
-            pass
 
     def restore_track_index(self):
         with self.lock:
