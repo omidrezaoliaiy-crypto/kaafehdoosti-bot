@@ -150,6 +150,12 @@ def run_health_server():
                 except Exception as e:
                     res["nostalgia_cache"] = f"ERR: {e}"
 
+                try:
+                    import resource
+                    mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                    res["memory_mb"] = round(mem_kb / 1024.0, 1)
+                except Exception:
+                    pass
                 nb = globals().get("global_nostalgia_bot")
                 if nb:
                     res["nostalgia_bot"] = {
@@ -3122,6 +3128,9 @@ class VoicePlayer:
                     sample_rate=self.sample_rate
                 )
                 raw_pcm = decoded.samples.tobytes()
+                del decoded
+                import gc
+                gc.collect()
                 self.bot.diag.append(f"PCM_OK:{len(raw_pcm)}")
             except Exception as e_mini:
                 self.bot.diag.append(f"MINI_ERR:{type(e_mini).__name__}")
@@ -3189,6 +3198,9 @@ class VoicePlayer:
             except Exception:
                 pass
 
+            raw_buf = buf_type()
+            ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+
             for _ in range(5):
                 if pos < total_len and not self.stop_event.is_set() and worker_id == self.worker_id:
                     chunk = raw_pcm[pos:pos + chunk_size]
@@ -3205,8 +3217,7 @@ class VoicePlayer:
                         except Exception:
                             pass
 
-                    raw_buf = buf_type.from_buffer_copy(chunk)
-                    ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+                    ctypes.memmove(raw_buf, chunk, len(chunk))
                     ab.uSampleIndex = sample_index
                     sample_index += samples_per_frame
                     self.bot.insertAudioBlock(ab)
@@ -3242,8 +3253,7 @@ class VoicePlayer:
                 if len(chunk) < chunk_size:
                     chunk += bytes(chunk_size - len(chunk))
 
-                raw_buf = buf_type.from_buffer_copy(chunk)
-                ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+                ctypes.memmove(raw_buf, chunk, len(chunk))
                 ab.uSampleIndex = sample_index
                 sample_index += samples_per_frame
 
@@ -3307,6 +3317,12 @@ class VoicePlayer:
                 pass
             if not self.stop_event.is_set():
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
+        finally:
+            raw_pcm = None
+            raw_buf = None
+            chunk = None
+            import gc
+            gc.collect()
 
 
 class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
@@ -3629,20 +3645,30 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         except Exception as e:
             print(f"[{self.log_prefix}] Next track prefetch err: {e}", flush=True)
 
-        # 2. Ensure all catalog tracks are cached in background
-        for item in self.initial_catalog:
-            mid = item.get("msg_id", 0)
-            fid = item.get("file_id")
-            title = item.get("title") or f"track_{mid}"
-            performer = item.get("performer") or ""
-            clean_title = "".join(c for c in title if c.isalnum() or c in " ._-()").strip()
-            if not clean_title.endswith(".mp3"):
-                clean_title += ".mp3"
-            dest_filename = f"{mid}_{clean_title}"
-            dest_path = os.path.join(self.cache_dir, dest_filename)
-
-            if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
-                self.download_tg_file(fid, dest_path)
+        # 2. Prune old cache to keep disk and memory minimal (max 4 files)
+        try:
+            if os.path.exists(self.cache_dir):
+                files = [os.path.join(self.cache_dir, f) for f in os.listdir(self.cache_dir) if f.endswith(".mp3")]
+                if len(files) > 4:
+                    files.sort(key=lambda x: os.path.getmtime(x))
+                    protected = set()
+                    with self.lock:
+                        if self.playlist and 0 <= self.current_index < len(self.playlist):
+                            p_curr = self.playlist[self.current_index].get("path", "")
+                            if p_curr: protected.add(os.path.abspath(p_curr))
+                        next_i = self.get_next_track_index() if self.playlist else 0
+                        if self.playlist and 0 <= next_i < len(self.playlist):
+                            p_next = self.playlist[next_i].get("path", "")
+                            if p_next: protected.add(os.path.abspath(p_next))
+                    for old_f in files[:-4]:
+                        if os.path.abspath(old_f) not in protected:
+                            try:
+                                os.remove(old_f)
+                                print(f"[{self.log_prefix}] Pruned old cache file: {os.path.basename(old_f)}", flush=True)
+                            except Exception:
+                                pass
+        except Exception as e_prune:
+            print(f"[{self.log_prefix}] Cache prune error: {e_prune}", flush=True)
 
         # 3. Check getUpdates for any brand new tracks posted by users
         try:
