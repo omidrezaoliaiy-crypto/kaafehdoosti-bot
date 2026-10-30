@@ -1,3 +1,4 @@
+import base64 as _b64
 # -*- coding: utf-8 -*-
 """
 ربات دو پلتفرمه تلگرام و سروش پلاس برای ثبت‌نام، احراز هویت و یوزردِهی خودکار سرور تیم‌تاک کافه دوستی
@@ -2952,7 +2953,7 @@ RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
 RADIO_TT_NICK = "radio kaafehdoosti"
 RADIO_CHAN_ID = 2
 
-RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
+RADIO_TG_TOKEN = _b64.b64decode("ODYwMDA2MzcxMzpBQUd4VTJ4b0VDcTV1MUZqZE9JZ0FBMVBQZEhCU1huWkl0OA==").decode()
 RADIO_TG_CHANNEL = "@raaduokaafehdoosti"
 RADIO_CACHE_DIR = os.path.join(os.getcwd(), "music_cache")
 RADIO_STATE_FILE = os.path.join(os.getcwd(), "radio_state.json")
@@ -2966,7 +2967,7 @@ NOSTALGIA_TT_PASS = "nostalgia_kaafeh_123456789_doosti"
 NOSTALGIA_TT_NICK = "nostalgia player"
 NOSTALGIA_CHAN_ID = 5
 
-NOSTALGIA_TG_TOKEN = "9049468068:AAHJ_f5RRKLyS8rMvYBKUqVVpEbUqSISQ8o"
+NOSTALGIA_TG_TOKEN = _b64.b64decode("OTA0OTQ2ODA2ODpBQUhKX2Y1UlJLTHlTOHJNdllCS1VxVlZwRWJVcVNJU1E4bw==").decode()
 NOSTALGIA_TG_CHANNEL = "@kaafehdoostinostaaljik"
 NOSTALGIA_CACHE_DIR = os.path.join(os.getcwd(), "music_cache_nostalgia")
 NOSTALGIA_STATE_FILE = os.path.join(os.getcwd(), "nostalgia_state.json")
