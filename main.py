@@ -111,6 +111,66 @@ def run_health_server():
                 self.end_headers()
                 self.wfile.write(msg.encode('utf-8'))
                 return
+            if self.path == "/nostalgia_status":
+                status_func = globals().get("get_nostalgia_status")
+                msg = status_func() if status_func else "در حال راه‌اندازی نستالژی پلیر..."
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(msg.encode('utf-8'))
+                return
+            if self.path == "/restart_nostalgia":
+                b = globals().get("global_nostalgia_bot")
+                if b:
+                    try:
+                        b.persist_state()
+                    except Exception:
+                        pass
+                    b.restart_requested = True
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Nostalgia restart requested")
+                return
+            if self.path == "/probe_nostalgia":
+                b = globals().get("global_nostalgia_bot")
+                if not b:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"No nostalgia bot")
+                    return
+                try:
+                    chan_id = getattr(b, "chan_id", 5)
+                    tt5 = globals().get("TeamTalk5")
+                    chan = b.getChannel(chan_id)
+                    codec_type = getattr(chan.audiocodec, "nCodec", -1)
+                    opus_sr = 0
+                    opus_ch = 0
+                    opus_br = 0
+                    if tt5 and codec_type == tt5.Codec.OPUS_CODEC:
+                        opus_sr = getattr(chan.audiocodec.opus, "nSampleRate", 0)
+                        opus_ch = getattr(chan.audiocodec.opus, "nChannels", 0)
+                        opus_br = getattr(chan.audiocodec.opus, "nBitRate", 0)
+                    res = {
+                        "flags": hex(b.getFlags()),
+                        "chan_codec": codec_type,
+                        "opus_sr": opus_sr,
+                        "opus_ch": opus_ch,
+                        "opus_br": opus_br,
+                        "diag": b.diag[-10:],
+                        "is_streaming": b.is_streaming,
+                    }
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(f"Probe err: {e}".encode('utf-8'))
+                    return
             if self.path == "/test_tt_sdk":
                 ensure_func = globals().get("ensure_linux_tt_sdk")
                 ok, msg = ensure_func() if ensure_func else (False, "Not defined yet")
@@ -585,15 +645,18 @@ def run_inactivity_checker():
 supervisor_socket = None
 supervisor_socket_lock = threading.Lock()
 
-def supervisor_update_radio_note(note_content):
+def supervisor_update_account_note(username, note_content):
     global supervisor_socket
     if supervisor_socket:
         try:
             with supervisor_socket_lock:
-                update_cmd = f'updateaccount username="radio kaafehdoosti" note="{note_content}"\r\n'.encode('utf-8')
+                update_cmd = f'updateaccount username="{username}" note="{note_content}"\r\n'.encode('utf-8')
                 supervisor_socket.sendall(update_cmd)
         except Exception:
             pass
+
+def supervisor_update_radio_note(note_content):
+    supervisor_update_account_note("radio kaafehdoosti", note_content)
 
 def monitor_teamtalk_activity():
     """ربات ناظر جهت حضور دائم و بدون قطعی در سرور، پینگ خودکار و ثبت لاگین کاربران در کانال مدیریت (chanid=28)"""
@@ -618,23 +681,38 @@ def monitor_teamtalk_activity():
 
             last_ping = time.time()
             last_radio_sync = 0
-            last_synced_state = ""
+            last_synced_state_radio = ""
+            last_synced_state_nostalgia = ""
             buffer = ""
+            global supervisor_radio_userid, supervisor_nostalgia_userid
+            supervisor_radio_userid = None
+            supervisor_nostalgia_userid = None
             
             while True:
                 now = time.time()
                 if now - last_radio_sync >= 15:
                     last_radio_sync = now
-                    b = global_radio_bot
+                    b = globals().get("global_radio_bot")
                     if b and getattr(b, "connected", False):
                         cur_sec = getattr(b, "resume_pos_sec", getattr(b, "current_playback_sec", 0.0))
                         t_file = getattr(b, "last_track_file", "")
                         vol = getattr(b, "volume_percent", 100)
                         idx = getattr(b, "current_index", 0)
                         note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
-                        if note_content != last_synced_state:
-                            last_synced_state = note_content
-                            supervisor_update_radio_note(note_content)
+                        if note_content != last_synced_state_radio:
+                            last_synced_state_radio = note_content
+                            supervisor_update_account_note(getattr(b, "tt_user", "radio kaafehdoosti"), note_content)
+
+                    nb = globals().get("global_nostalgia_bot")
+                    if nb and getattr(nb, "connected", False):
+                        cur_sec = getattr(nb, "resume_pos_sec", getattr(nb, "current_playback_sec", 0.0))
+                        t_file = getattr(nb, "last_track_file", "")
+                        vol = getattr(nb, "volume_percent", 100)
+                        idx = getattr(nb, "current_index", 0)
+                        note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
+                        if note_content != last_synced_state_nostalgia:
+                            last_synced_state_nostalgia = note_content
+                            supervisor_update_account_note(getattr(nb, "tt_user", "nostalgia player"), note_content)
 
                 if now - last_ping >= 20:
                     try:
@@ -661,18 +739,24 @@ def monitor_teamtalk_activity():
                             except Exception:
                                 pass
                         elif "removeuser" in line:
-                            # اگر ربات رادیو در حال کار از سرور خارج شد یا کیک شد، ربات ناظر فوراً مطلع می‌شود
-                            global supervisor_radio_userid
                             uid_m = re.search(r'userid=(\d+)', line)
                             del_uid = int(uid_m.group(1)) if uid_m else -99
                             b = globals().get("global_radio_bot")
                             b_uid = getattr(b, "my_user_id", -99) if b else -99
+                            nb = globals().get("global_nostalgia_bot")
+                            nb_uid = getattr(nb, "my_user_id", -99) if nb else -99
                             
                             is_radio = False
                             if del_uid > 0 and (del_uid == b_uid or del_uid == supervisor_radio_userid):
                                 is_radio = True
                             elif "radio kaafehdoosti" in line:
                                 is_radio = True
+
+                            is_nostalgia = False
+                            if del_uid > 0 and (del_uid == nb_uid or del_uid == supervisor_nostalgia_userid):
+                                is_nostalgia = True
+                            elif "nostalgia player" in line:
+                                is_nostalgia = True
 
                             if is_radio:
                                 print(f"[Watchdog Event] ربات ناظر خروج یا اخراج آنی ربات رادیو (uid={del_uid}) را ثبت کرد. احیای فوری و ادامه پخش...", flush=True)
@@ -688,6 +772,20 @@ def monitor_teamtalk_activity():
                                 except Exception:
                                     pass
 
+                            if is_nostalgia:
+                                print(f"[Watchdog Event] ربات ناظر خروج یا اخراج آنی نستالژی پلیر (uid={del_uid}) را ثبت کرد. احیای فوری و ادامه پخش...", flush=True)
+                                supervisor_nostalgia_userid = None
+                                if nb:
+                                    try:
+                                        nb.persist_state()
+                                    except Exception:
+                                        pass
+                                    nb.restart_requested = True
+                                try:
+                                    ensure_nostalgia_worker_alive()
+                                except Exception:
+                                    pass
+
                         elif "loggedin" in line or "adduser" in line or "updateuser" in line:
                             u_m = re.search(r'username="([^"]+)"', line)
                             if u_m:
@@ -697,6 +795,10 @@ def monitor_teamtalk_activity():
                                     uid_m = re.search(r'userid=(\d+)', line)
                                     if uid_m:
                                         supervisor_radio_userid = int(uid_m.group(1))
+                                elif "nostalgia player" in u_name:
+                                    uid_m = re.search(r'userid=(\d+)', line)
+                                    if uid_m:
+                                        supervisor_nostalgia_userid = int(uid_m.group(1))
 
                 except socket.timeout:
                     continue
@@ -2736,54 +2838,114 @@ try:
 except Exception as e:
     print(f"[Radio] Error importing TeamTalk5: {e}", flush=True)
 
-RADIO_TT_HOST = "185.26.33.57"
-RADIO_TT_PORT = 10333
+import os
+import sys
+import json
+import time
+import threading
+import sqlite3
+import ctypes
+import re
+import urllib.request
+import urllib.parse
+import urllib.error
+
+SHARED_TT_HOST = "185.26.33.57"
+SHARED_TT_PORT = 10333
+RADIO_ADMINS = {"omid.o", "yalda", "admin", "kaafehdoostibot", "omid"}
+
+# ----------------- تنظیمات رادیو کافه دوستی (کانال ۲) -----------------
+RADIO_TT_HOST = SHARED_TT_HOST
+RADIO_TT_PORT = SHARED_TT_PORT
 RADIO_TT_USER = "radio kaafehdoosti"
 RADIO_TT_PASS = "radio_kaafeh_123456789_doosti"
 RADIO_TT_NICK = "radio kaafehdoosti"
 RADIO_CHAN_ID = 2
-RADIO_ADMINS = {"omid.o", "yalda", "admin", "kaafehdoostibot", "omid"}
 
 RADIO_TG_TOKEN = "8600063713:AAGxU2xoECq5u1FjdOIgAA1PPdHBSXnZIt8"
 RADIO_TG_CHANNEL = "@raaduokaafehdoosti"
 RADIO_CACHE_DIR = os.path.join(os.getcwd(), "music_cache")
+RADIO_STATE_FILE = os.path.join(os.getcwd(), "radio_state.json")
 BASE_TRACK_CATALOG = [{'msg_id': 2, 'title': '99883435', 'performer': '<unknown>', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADAmrh6ZpUMSFpSAqKpUCPZfDsNDC2AAJlIQACYHYJUx7jpPRoHV2FPQQ'}, {'msg_id': 3, 'title': 'Aroos Shomali', 'performer': 'Ebi Aali @Raz-Music.IR', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADA2rh6oU8_xDsnBp2MVd7-PXsBQ84AAJmIQACYHYJU4QYFZMdM9k7PQQ'}, {'msg_id': 4, 'title': 'Gheyrati', 'performer': 'Savash', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBGrh6oZ0RzXv220sH80s3uIR70wOAAJnIQACYHYJU8Bgpm6mPc7sPQQ'}, {'msg_id': 5, 'title': 'Roya', 'performer': 'Savash', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBWrh6pQOffKhu7fsLc6FuytI-_7tAAJoIQACYHYJU5xAqA1LwD2JPQQ'}, {'msg_id': 6, 'title': 'Joonami ~ TajMusics.com ', 'performer': 'Novan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADBmrh6pWyWor4uQu9sai_9mJgO0NsAAJtIQACYHYJU_JMmp8h2jc5PQQ'}, {'msg_id': 7, 'title': 'Refigh موزیکدل', 'performer': 'Milad Rastaad موزیکدل', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADB2rh6pdxFdGSSfxpFlK0BbquNV_ZAAJyIQACYHYJU0u8-R7M0F0dPQQ'}, {'msg_id': 8, 'title': 'Delam Tangete', 'performer': 'Sina Derakhshande', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCGrh6p8S9UXA7vdjzEd2s-Ld7a3wAAK_GgAC-20BU2ABr3mb7ogPPQQ'}, {'msg_id': 9, 'title': 'Nagam Barat', 'performer': 'Babak Jahanbakhsh', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCWrh6qgenVBzjOqwHfGbPQhYGm6JAAL1CQACLJa4UljOAbStJxUHPQQ'}, {'msg_id': 10, 'title': 'Kharabemoon Kard', 'performer': 'Mojtaba Dorbidi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADCmrh6q4jJ016HwbRCeRtXCXgnUt9AAJKCgACTCtQUeEoaJDL-ylUPQQ'}, {'msg_id': 11, 'title': 'Bahooneh', 'performer': 'Mehdi Moghaddam', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADC2rh6q_nrQTcBjq0HzhcN3fEkYPSAAK7BwACrINZUWdCLD9YexswPQQ'}, {'msg_id': 12, 'title': 'Man Chi', 'performer': 'Misagh Raad', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDGrh6rOqt-3hVaklcFNqaxaunn_HAAKbBwAClYxIUYwgAAExzL-VqD0E'}, {'msg_id': 13, 'title': 'Dametam Garm (Live Version)', 'performer': 'Puzzle Band', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDWrh6sFE3IrUne-Fp7b3fSYaLYJ4AAJkBwACMQNYUSXgoQu0Zg4lPQQ'}, {'msg_id': 14, 'title': 'Ashti', 'performer': 'Mohammad Lotfi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADDmrh6sLb3b_9sBwDH1HkHmW1lr_eAAI4CQACPH5QUZWjM7NbQ6pePQQ'}, {'msg_id': 15, 'title': 'Chatr', 'performer': 'Saman Jalili', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADD2rh6sMWmoRwDepddJjtavtCWtf1AAI1BwACTIfYUA2xbk9EBAj2PQQ'}, {'msg_id': 16, 'title': 'Shab Bekheir', 'performer': 'Kamran Molaei', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEGrhadOcqby-sJMgeQxNUQHfglQbAAK7IAACb7f5UsuBkYIT8uLOPQQ'}, {'msg_id': 17, 'title': 'To Doost Dashti', 'performer': 'Ali Abdolmaleki', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEWrhaizkMsU5fdqfDB1491LrLu9pAAIUHwACDbkJU82VTcvkPVJfPQQ'}, {'msg_id': 18, 'title': 'Mishe Bargardi Khoone', 'performer': 'Ashvan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADEmrhap5sUfe89M1TTmouluBp8nQ9AAL8HwACk6zwUm-wnppxuGIiPQQ'}, {'msg_id': 19, 'title': 'Ma 2 Ta', 'performer': '2Yar', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADE2rha4nUQ0pVlBg-18hWLRSYGhG-AAIKHAAC4IvQUl_sQ13UvAcaPQQ'}, {'msg_id': 20, 'title': '[Be Shab Nareside Chera Deltange Cheshat Shudam] ~[SevilMusic.Com]~', 'performer': '[Shayan Yo]', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFGrheHq_xW2p4PH23kYN9pa0BGOlAAJJHgACWQEIU6lp5lkqcFnTPQQ'}, {'msg_id': 21, 'title': 'Yadet Nemiyad  | UpTune.ir', 'performer': 'Persian Remix  | آپ تیون', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFWrheHqfCAs4JOSMbT5I7P3ubkTGAAJKHgACWQEIU2z3T66agi8IPQQ'}, {'msg_id': 22, 'title': '2026_@Remix_song_rap-_I69OrwUBcg.mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADFmrheHrbUEY2zDgda_WRLjNvwzXUAAJLHgACWQEIU9fffYNPEOz7PQQ'}, {'msg_id': 29, 'title': 'Dashi', 'performer': 'Shahin Najafi & Erfan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADHWrhkZtGXkFarSb_-K7lfWI2AqjpAAITIAACj0kJU_NcIkBwG4s2PQQ'}, {'msg_id': 30, 'title': 'Jigar Tala ~ Musics-Fa.Com', 'performer': '2Yar ~ Musics-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADHmrhk6Z3LXP_NhABOufq07JE53qlAAIVIAACj0kJU553Tj5nsne5PQQ'}, {'msg_id': 31, 'title': 'Injoori Nemishe', 'performer': 'Ali Montazeri', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADH2rhlXUqzBHdrEsRqsrLo1dUmAitAAIYIAACj0kJU4wiwRshhb9VPQQ'}, {'msg_id': 32, 'title': 'Koodeta', 'performer': 'Bijan Yaar', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADIGrhlZjP-9rU44VsD7nrZAtQ7BEcAAIZIAACj0kJUyxP4lr9-zDYPQQ'}, {'msg_id': 33, 'title': 'Haydeh & chavoshi', 'performer': '@MusiceMeee', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADIWrhlokK3PSExPrpNAnXPqWAg8tiAAIbIAACj0kJU-J4tFFv11qKPQQ'}, {'msg_id': 34, 'title': 'Siroos Pishghadam Delbar Delbar', 'performer': 'اینستاگرام: soonami_mp3', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADImrhl-t_A5LwqW0VSATd_5QxFxbwAAIcIAACj0kJUxTq8TR2Y1qMPQQ'}, {'msg_id': 35, 'title': 'Majnoonetam ~ UpMusic', 'performer': 'Soheil Mehrzadegan ~ UpMusic', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADI2rhl-tXS55J9NFakkAqNOgEjs3RAAIdIAACj0kJU8eEoWz0SeHOPQQ'}, {'msg_id': 36, 'title': 'Edame Nemidam', 'performer': 'Yousef Zamani', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJGrhmDYbDQVMHv2DzTdDFj3OwWq4AAIeIAACj0kJUxUpSMcYrooUPQQ'}, {'msg_id': 37, 'title': 'Amin-Habibi-Bi-Gharar-(New-Version)(Happy-Song.Ir)', 'performer': 'Amin-Habibi-Bi-Gharar-(New-Version)(Happy-Song.Ir)', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJWrhmDY_9nTxbjMTvJPacFjBir9pAAIfIAACj0kJU2Anplo2-k7UPQQ'}, {'msg_id': 38, 'title': 'Shaparak', 'performer': 'Ikan', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJmrhmGBozTOEuJvLrV7-yFJ8AAFL5wACICAAAo9JCVM-LCoTCeGzoj0E'}, {'msg_id': 39, 'title': 'Kojaei Alan', 'performer': 'Hossein Montazeri', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADJ2rhmGAvMFaSP1yOmH0bjyBbmKxAAAIiIAACj0kJUxZhMVEo5GQaPQQ'}, {'msg_id': 40, 'title': 'Kabootar', 'performer': 'Sina Parsian @RozMusic.com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKGrhmVvIWtIpiZju7Jx1JWcXeVzJAAIkIAACj0kJU2EgZF9HYk-uPQQ'}, {'msg_id': 41, 'title': 'Azizi ( ahaang.com )', 'performer': 'Alireza Talischi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKWrhmVuMV82N8bx4qD5hV2496od_AAIlIAACj0kJU3UdFAKT7sPFPQQ'}, {'msg_id': 42, 'title': 'Labato Zhel Bezanam topsongs.ir', 'performer': 'topsongs.ir', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADKmrhms2sm-fMdoip9dqxn5iDRqs9AAImIAACj0kJU1pUu33Vzk6yPQQ'}, {'msg_id': 43, 'title': 'Phobia', 'performer': 'Armin Zarei @RozMusic.com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADK2rhms1nDhNKhp14ajIOm-9KzUZXAAIoIAACj0kJU2Dtq5zt2l5RPQQ'}, {'msg_id': 44, 'title': 'Zang Bezani', 'performer': 'Mohsen Ebrahimzadeh', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADLGrhms0nSBioXTV5BtbS25KX4mHOAAIpIAACj0kJU6DdDsMVp1GmPQQ'}, {'msg_id': 45, 'title': 'Ye Ja To Delet (320).mp3', 'performer': '', 'file_id': 'BQACAgQAAyEFAAMBBZ8iywADLWrhm3e8Vfu18m5ZHT6WI4dwIXH7AAIsIAACj0kJU5pZ7ScIufpcPQQ'}, {'msg_id': 46, 'title': '4 Divari ~ Music-Fa.Com', 'performer': 'Mohammad Moharami ~ Music-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADLmrhm-v7kSDz2j-DazET-kxYAAG93AACLiAAAo9JCVNzWjFD7AnuQT0E'}, {'msg_id': 47, 'title': 'Dino Donya موزیکدل', 'performer': 'Ahoora موزیکدل', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADL2rhm-sYg6LoMWQDEAWS75XsigdCAAIvIAACj0kJU1GwgJZqH453PQQ'}, {'msg_id': 48, 'title': 'Bedon Man Koja Mikhay Beri ~ TajMusics.Com ', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMGrhm-sjZWZONz3q4nCn_5NIKyigAAIwIAACj0kJU5byF1NshYs9PQQ'}, {'msg_id': 49, 'title': 'Shab Ahangi ~ Music-Fa.Com', 'performer': 'Masoud Sadeghloo ~ Music-Fa.Com', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMWrhm-vQl56nsR-KDWLJOEgamugnAAIxIAACj0kJU9bor4EaY0-QPQQ'}, {'msg_id': 50, 'title': 'Mehdi Ahmadvand - Cheshmat (320).mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADMmrhnThakBvpdRLk9E_2buQNORRWAAI0IAACj0kJU-OTSfEzkXM5PQQ'}, {'msg_id': 51, 'title': 'Sare To [SultanMusic.IR]', 'performer': 'Shayan Yo', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADM2rhnTha99MjLaaLq6kM436J_403AAI1IAACj0kJU0wbxy6qN2UKPQQ'}, {'msg_id': 52, 'title': 'Naser Pourkaram - Khabar Nadari.mp3', 'performer': '', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNGrhnTieXHCpXdZ-CUhDlBkvCqkZAAI2IAACj0kJU6FWC3ANWxG1PQQ'}, {'msg_id': 53, 'title': '[Bala Mala Ey Tala Tala] ~[SevilMusic.Com]~', 'performer': '[Unknown Artist]', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNWrhng9FOD-GCk8V1iUAAe3QPNaBYAACOCAAAo9JCVOsJYk18AnYfz0E'}, {'msg_id': 54, 'title': 'Vay Az Dastet', 'performer': 'Meysam Ebrahimi', 'file_id': 'CQACAgQAAyEFAAMBBZ8iywADNmrhuqRp_GXgZNL6RLk2IDBXXyG5AALCIQACQaDQUkIewAEQCMo4PQQ'}]
 
+# ----------------- تنظیمات نستالژی پلیر (کانال ۵ - آلاچیق) -----------------
+NOSTALGIA_TT_HOST = SHARED_TT_HOST
+NOSTALGIA_TT_PORT = SHARED_TT_PORT
+NOSTALGIA_TT_USER = "nostalgia player"
+NOSTALGIA_TT_PASS = "nostalgia_kaafeh_123456789_doosti"
+NOSTALGIA_TT_NICK = "nostalgia player"
+NOSTALGIA_CHAN_ID = 5
+
+NOSTALGIA_TG_TOKEN = "9049468068:AAHJ_f5RRKLyS8rMvYBKUqVVpEbUqSISQ8o"
+NOSTALGIA_TG_CHANNEL = "@kaafehdoostinostaaljik"
+NOSTALGIA_CACHE_DIR = os.path.join(os.getcwd(), "music_cache_nostalgia")
+NOSTALGIA_STATE_FILE = os.path.join(os.getcwd(), "nostalgia_state.json")
+NOSTALGIA_TRACK_CATALOG = [
+  {
+    "msg_id": 2,
+    "title": "Asir",
+    "performer": "Mahasti - GahMusic.com",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADAmrj6F619-IbE7GvTO5TZVYEXLadAALXHwACtnggU7ki4TRYY3-tPQQ"
+  },
+  {
+    "msg_id": 3,
+    "title": "1 abbas-ghaderii - 1 - 128 - .mp3",
+    "performer": "Abbas Ghaderi - Musicmehr.com",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADA2rj6F5mc7xdkcJ2alNMg25FyvrrAALYHwACtnggU9MYp2C4qkKxPQQ"
+  },
+  {
+    "msg_id": 4,
+    "title": "Aghasi - GahMusic.com",
+    "performer": "",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADBGrj6F7Fyn0W8ZS_V4sNA-sgS-Q4AALcHwACtnggU5nv9eZ5axrBPQQ"
+  },
+  {
+    "msg_id": 5,
+    "title": "Bargeh Barandeh~MelonMusic.ir",
+    "performer": "Davood Behboodi",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADBWrj6F49KVFr1xQvcIhSoh-RyZhQAALdHwACtnggUy2TJNcAAbn8tj0E"
+  },
+  {
+    "msg_id": 6,
+    "title": "Sabzeh Keshmir",
+    "performer": "Fataneh",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADBmrj6F48OAQRpsnqODouElsR4S7uAALeHwACtnggU2gUC4H194FcPQQ"
+  },
+  {
+    "msg_id": 7,
+    "title": "Nemiyad~MelonMusic.ir",
+    "performer": "Googoosh",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADB2rj6F5mZLH2R4-vbXJ_QdUgp3Y6AALbHwACtnggUyg1F5Dhh5AwPQQ"
+  },
+  {
+    "msg_id": 8,
+    "title": "Bandari",
+    "performer": "Habib",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADCGrj6F7pP0y_eaYzE5SJQm7RsStjAALfHwACtnggU5s7DAMYnnvnPQQ"
+  },
+  {
+    "msg_id": 9,
+    "title": "The Medley",
+    "performer": "Hassan Shamaizadeh",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADCWrj6F76VKglB_XRGzjBbzO08iqrAALhHwACtnggU2uexfFZXNgiPQQ"
+  },
+  {
+    "msg_id": 10,
+    "title": "Vafayeh Del",
+    "performer": "GahMusic.com",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADCmrj6F6OZW-Mu3k5bsWTrTo8Ats5AALgHwACtnggU2NtsLkJMG6zPQQ"
+  },
+  {
+    "msg_id": 11,
+    "title": "Alame Ashgh",
+    "performer": "Homayra",
+    "file_id": "CQACAgQAAyEFAAMBBf7lXgADC2rj6F7S3wiGSoC__fUP5gABlZHoywAC4h8AArZ4IFOfbnlybEChmD0E"
+  }
+]
+
 os.makedirs(RADIO_CACHE_DIR, exist_ok=True)
+os.makedirs(NOSTALGIA_CACHE_DIR, exist_ok=True)
 
-global_radio_bot = None
-
-def get_radio_status():
-    global global_radio_bot
-    if not global_radio_bot:
-        return "ربات رادیو کافه دوستی در حال راه‌اندازی است..."
-    b = global_radio_bot
-    flags = 0
-    try:
-        flags = b.getFlags()
-    except Exception:
-        pass
-    lines = [
-        f"لاگ رویدادها: {' | '.join(b.diag[-8:]) if getattr(b, 'diag', None) else 'هیچ'}",
-        f"فلگ کلاینت: {hex(flags)}",
-        f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
-        f"ورود به حساب رادیو: {'موفق' if b.logged_in else 'ناموفق'}",
-        f"حضور در اتاق ۲ (رادیو کافه دوستی): {'بله' if b.joined else 'خیر'}",
-        f"وضعیت پخش موزیک: {'در حال پخش' if b.is_streaming else 'متوقف'}",
-        f"وضعیت تایتل: {'مخفی' if getattr(b, 'title_hidden', False) else 'نمایان'}",
-        f"میزان صدا: {b.volume_percent} درصد",
-        f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
-    ]
-    if b.current_track:
-        next_idx = b.get_next_track_index(b.current_index) if b.playlist else 0
-        next_track = b.playlist[next_idx] if b.playlist else {}
-        lines.append(f"قطعه فعلی ({b.current_index + 1}/{len(b.playlist)}): {b.current_track.get('title')}")
-        lines.append(f"قطعه بعدی: {next_track.get('title', 'ندارد')}")
-    else:
-        lines.append("قطعه فعلی: آهنگی در حال پخش نیست")
-    return "\n".join(lines)
-
-RADIO_STATE_FILE = os.path.join(os.getcwd(), "radio_state.json")
 SAVED_RADIO_VOLUME = 25
 
 def save_persistent_config(key, value):
@@ -2795,7 +2957,7 @@ def save_persistent_config(key, value):
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"[Radio] save_persistent_config err: {e}", flush=True)
+        print(f"[Config] save_persistent_config err: {e}", flush=True)
 
 def load_persistent_config(key, default=None):
     try:
@@ -2808,67 +2970,9 @@ def load_persistent_config(key, default=None):
         if row and row[0] is not None:
             return row[0]
     except Exception as e:
-        print(f"[Radio] load_persistent_config err: {e}", flush=True)
+        print(f"[Config] load_persistent_config err: {e}", flush=True)
     return default
 
-def load_saved_radio_state():
-    global SAVED_RADIO_VOLUME
-    db_vol = load_persistent_config("volume_percent", None)
-    if db_vol is not None:
-        try:
-            SAVED_RADIO_VOLUME = int(db_vol)
-        except Exception:
-            pass
-
-    db_pos = load_persistent_config("playback_pos_sec", None)
-    pos_sec = 0.0
-    if db_pos is not None:
-        try:
-            pos_sec = float(db_pos)
-        except Exception:
-            pass
-
-    db_idx = load_persistent_config("current_index", None)
-    cur_idx = 0
-    if db_idx is not None:
-        try:
-            cur_idx = int(db_idx)
-        except Exception:
-            pass
-
-    db_track = load_persistent_config("last_track_name", "") or ""
-    db_file = load_persistent_config("last_track_file", "") or ""
-
-    defaults = {
-        "volume_percent": SAVED_RADIO_VOLUME,
-        "title_hidden": False,
-        "last_track_name": db_track,
-        "last_track_file": db_file,
-        "current_index": cur_idx,
-        "playback_pos_sec": pos_sec
-    }
-    if os.path.exists(RADIO_STATE_FILE):
-        try:
-            with open(RADIO_STATE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                defaults.update(data)
-                if "volume_percent" in data:
-                    SAVED_RADIO_VOLUME = data["volume_percent"]
-        except Exception as e:
-            print(f"[Radio] Load state err: {e}", flush=True)
-    print(f"[Radio] Loaded persistent radio state: {defaults}", flush=True)
-    return defaults
-
-def save_radio_state(state):
-    try:
-        tmp_path = RADIO_STATE_FILE + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-            f.flush()
-        if os.path.exists(tmp_path):
-            os.replace(tmp_path, RADIO_STATE_FILE)
-    except Exception as e:
-        print(f"[Radio] Save state err: {e}", flush=True)
 
 class VoicePlayer:
     def __init__(self, bot):
@@ -2898,11 +3002,13 @@ class VoicePlayer:
             pass
 
     def _play_worker(self, track_path, start_sec=0.0, worker_id=0):
+        log_p = getattr(self.bot, "log_prefix", "Radio")
+        chan_id = getattr(self.bot, "chan_id", RADIO_CHAN_ID)
         try:
             chan_ch = 2
             chan_sr = 48000
             try:
-                chan = self.bot.getChannel(RADIO_CHAN_ID)
+                chan = self.bot.getChannel(chan_id)
                 if getattr(chan.audiocodec, "nCodec", None) == TeamTalk5.Codec.OPUS_CODEC:
                     c_ch = getattr(chan.audiocodec.opus, "nChannels", 2)
                     c_sr = getattr(chan.audiocodec.opus, "nSampleRate", 48000)
@@ -2911,7 +3017,7 @@ class VoicePlayer:
                     if c_sr in (8000, 16000, 24000, 48000):
                         chan_sr = c_sr
             except Exception as e:
-                print(f"[Radio] Channel codec inspect err: {e}", flush=True)
+                print(f"[{log_p}] Channel codec inspect err: {e}", flush=True)
 
             self.channels = chan_ch
             self.sample_rate = chan_sr
@@ -2939,14 +3045,14 @@ class VoicePlayer:
                     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                     raw_pcm = proc.stdout.read()
                 except Exception as e:
-                    print(f"[Radio] ffmpeg decode err: {e}", flush=True)
+                    print(f"[{log_p}] ffmpeg decode err: {e}", flush=True)
 
             if self.stop_event.is_set() or worker_id != self.worker_id:
                 return
 
             min_chunk = int(self.sample_rate * 0.02) * self.channels * 2
             if not raw_pcm or len(raw_pcm) < min_chunk:
-                print("[Radio] Direct Voice: Could not decode to PCM. Fallback to media file stream...", flush=True)
+                print(f"[{log_p}] Direct Voice: Could not decode to PCM. Fallback to media file stream...", flush=True)
                 self.bot.stream_media_file_fallback(track_path)
                 return
 
@@ -2958,13 +3064,11 @@ class VoicePlayer:
             start_pos = (start_pos // chunk_size) * chunk_size
             if 0 < start_pos < total_len - (chunk_size * 50):
                 pos = start_pos
-                print(f"[Radio] Resuming playback of {os.path.basename(track_path)} from {start_sec:.1f}s (byte {pos}/{total_len})", flush=True)
+                print(f"[{log_p}] Resuming playback of {os.path.basename(track_path)} from {start_sec:.1f}s (byte {pos}/{total_len})", flush=True)
             else:
                 pos = 0
                 start_sec = 0.0
 
-            # CRITICAL FIX: In TeamTalk AudioBlock, sample_index is the session packet sequence number.
-            # It MUST ALWAYS start at 0 so the TeamTalk jitter buffer receives clean, unbroken audio!
             sample_index = 0
             self.current_pos = pos
 
@@ -3064,7 +3168,7 @@ class VoicePlayer:
                     failed_inserts += 1
                     time.sleep(0.010)
                     if failed_inserts >= 30:
-                        print(f"[Radio] insertAudioBlock rejected {failed_inserts} times. Fallback...", flush=True)
+                        print(f"[{log_p}] insertAudioBlock rejected {failed_inserts} times. Fallback...", flush=True)
                         self.bot.diag.append("INS_FAIL_FALLBACK")
                         self.bot.stream_media_file_fallback(track_path)
                         return
@@ -3088,18 +3192,17 @@ class VoicePlayer:
 
             if self.stop_event.is_set():
                 if worker_id == self.worker_id:
-                    # Only save if this worker actually streamed audio beyond its start offset
                     if pos > (start_pos + chunk_size * 25):
                         sec = pos / (self.sample_rate * self.channels * 2)
                         self.bot.current_playback_sec = sec
                         self.bot.resume_pos_sec = sec
                         self.bot.persist_state()
-                        print(f"[Radio] Playback paused/interrupted at {sec:.1f}s - position preserved.", flush=True)
+                        print(f"[{log_p}] Playback paused/interrupted at {sec:.1f}s - position preserved.", flush=True)
                     else:
-                        print(f"[Radio] Playback stopped before streaming. Preserving saved position {self.bot.resume_pos_sec:.1f}s", flush=True)
+                        print(f"[{log_p}] Playback stopped before streaming. Preserving saved position {self.bot.resume_pos_sec:.1f}s", flush=True)
             else:
                 if worker_id == self.worker_id:
-                    print("[Radio] Direct Voice track finished. Resetting position and playing next...", flush=True)
+                    print(f"[{log_p}] Direct Voice track finished. Resetting position and playing next...", flush=True)
                     self.bot.current_playback_sec = 0.0
                     self.bot.resume_pos_sec = 0.0
                     self.bot.persist_state()
@@ -3108,7 +3211,7 @@ class VoicePlayer:
                     threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
-            print(f"[Radio] Direct Voice runtime error: {e}", flush=True)
+            print(f"[{log_p}] Direct Voice runtime error: {e}", flush=True)
             self.bot.diag.append(f"VOICE_ERR:{e}")
             try:
                 self.bot.insertAudioBlock(None)
@@ -3117,16 +3220,36 @@ class VoicePlayer:
             if not self.stop_event.is_set():
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
 
-class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
-    def __init__(self):
+
+class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
+    def __init__(self, bot_type="radio", chan_id=2, tt_user="", tt_pass="", tt_nick="",
+                 tg_token="", tg_channel="", cache_dir="", state_file="",
+                 config_prefix="radio", initial_catalog=None, log_prefix="Radio",
+                 display_name="رادیو کافه دوستی", admins=None):
         super().__init__()
+        self.bot_type = bot_type
+        self.chan_id = chan_id
+        self.tt_user = tt_user
+        self.tt_pass = tt_pass
+        self.tt_nick = tt_nick
+        self.tg_token = tg_token
+        self.tg_channel = tg_channel
+        self.cache_dir = cache_dir
+        self.state_file = state_file
+        self.config_prefix = config_prefix
+        self.initial_catalog = initial_catalog or []
+        self.log_prefix = log_prefix
+        self.display_name = display_name
+        self.admins = admins or RADIO_ADMINS
+
         self.connected = False
         self.logged_in = False
         self.joined = False
-        
-        # Pre-populate playlist immediately from BASE_TRACK_CATALOG for instant startup and immediate title
+        self.my_user_id = 0
+
+        # Pre-populate playlist immediately from initial catalog
         self.playlist = []
-        for item in BASE_TRACK_CATALOG:
+        for item in self.initial_catalog:
             mid = item.get("msg_id", 0)
             fid = item.get("file_id")
             title = item.get("title") or f"track_{mid}"
@@ -3135,16 +3258,16 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if not clean_title.endswith(".mp3"):
                 clean_title += ".mp3"
             dest_filename = f"{mid}_{clean_title}"
-            dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
-            display_name = f"{performer} - {title}".strip(" -")
+            dest_path = os.path.join(self.cache_dir, dest_filename)
+            display_name_track = f"{performer} - {title}".strip(" -")
             self.playlist.append({
                 "msg_id": mid,
-                "title": display_name,
+                "title": display_name_track,
                 "path": dest_path,
                 "file_id": fid
             })
-        
-        saved = load_saved_radio_state()
+
+        saved = self.load_saved_state()
         self.volume_percent = saved.get("volume_percent", 25)
         self.title_hidden = saved.get("title_hidden", False)
         self.last_track_name = saved.get("last_track_name", "")
@@ -3155,7 +3278,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.resume_pos_sec = self.current_playback_sec
         self.created_at = time.time()
         self.last_connected_at = 0
-        
+        self.last_track_finish_at = 0
+
         self.is_streaming = False
         self.current_track = None
         self.last_update_id = 0
@@ -3169,6 +3293,66 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self._is_starting_playback = False
         self.restore_track_index()
 
+    def load_saved_state(self):
+        # Check prefixed key first, fallback to non-prefixed for backward compatibility
+        db_vol = load_persistent_config(f"{self.config_prefix}_volume_percent", None)
+        if db_vol is None and self.config_prefix == "radio":
+            db_vol = load_persistent_config("volume_percent", None)
+        saved_vol = 25
+        if db_vol is not None:
+            try:
+                saved_vol = int(db_vol)
+            except Exception:
+                pass
+
+        db_pos = load_persistent_config(f"{self.config_prefix}_playback_pos_sec", None)
+        if db_pos is None and self.config_prefix == "radio":
+            db_pos = load_persistent_config("playback_pos_sec", None)
+        pos_sec = 0.0
+        if db_pos is not None:
+            try:
+                pos_sec = float(db_pos)
+            except Exception:
+                pass
+
+        db_idx = load_persistent_config(f"{self.config_prefix}_current_index", None)
+        if db_idx is None and self.config_prefix == "radio":
+            db_idx = load_persistent_config("current_index", None)
+        cur_idx = 0
+        if db_idx is not None:
+            try:
+                cur_idx = int(db_idx)
+            except Exception:
+                pass
+
+        db_track = load_persistent_config(f"{self.config_prefix}_last_track_name", "") or ""
+        if not db_track and self.config_prefix == "radio":
+            db_track = load_persistent_config("last_track_name", "") or ""
+
+        db_file = load_persistent_config(f"{self.config_prefix}_last_track_file", "") or ""
+        if not db_file and self.config_prefix == "radio":
+            db_file = load_persistent_config("last_track_file", "") or ""
+
+        defaults = {
+            "volume_percent": saved_vol,
+            "title_hidden": False,
+            "last_track_name": db_track,
+            "last_track_file": db_file,
+            "current_index": cur_idx,
+            "playback_pos_sec": pos_sec
+        }
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    defaults.update(data)
+                    if "volume_percent" in data:
+                        saved_vol = data["volume_percent"]
+            except Exception as e:
+                print(f"[{self.log_prefix}] Load state err: {e}", flush=True)
+        print(f"[{self.log_prefix}] Loaded persistent state: {defaults}", flush=True)
+        return defaults
+
     def persist_state(self):
         try:
             if getattr(self, "is_streaming", False) and hasattr(self, "voice_player") and getattr(self.voice_player, "current_pos", 0) > 0:
@@ -3178,7 +3362,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             else:
                 cur_sec = getattr(self, "resume_pos_sec", getattr(self, "current_playback_sec", 0.0))
 
-            vol = getattr(self, "volume_percent", SAVED_RADIO_VOLUME)
+            vol = getattr(self, "volume_percent", 25)
             t_name = self.current_track.get("title", "") if self.current_track else getattr(self, "last_track_name", "")
             t_file = os.path.basename(self.current_track.get("path", "")) if self.current_track else getattr(self, "last_track_file", "")
 
@@ -3193,16 +3377,35 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.last_track_name = t_name
             self.last_track_file = t_file
 
-            save_persistent_config("volume_percent", vol)
-            save_persistent_config("current_index", self.current_index)
-            save_persistent_config("playback_pos_sec", round(cur_sec, 2))
-            save_persistent_config("last_track_name", t_name)
-            save_persistent_config("last_track_file", t_file)
-            save_radio_state(state)
+            save_persistent_config(f"{self.config_prefix}_volume_percent", vol)
+            save_persistent_config(f"{self.config_prefix}_current_index", self.current_index)
+            save_persistent_config(f"{self.config_prefix}_playback_pos_sec", round(cur_sec, 2))
+            save_persistent_config(f"{self.config_prefix}_last_track_name", t_name)
+            save_persistent_config(f"{self.config_prefix}_last_track_file", t_file)
+
+            if self.config_prefix == "radio":
+                global SAVED_RADIO_VOLUME
+                SAVED_RADIO_VOLUME = vol
+                save_persistent_config("volume_percent", vol)
+                save_persistent_config("current_index", self.current_index)
+                save_persistent_config("playback_pos_sec", round(cur_sec, 2))
+                save_persistent_config("last_track_name", t_name)
+                save_persistent_config("last_track_file", t_file)
+
+            try:
+                tmp_path = self.state_file + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(state, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                if os.path.exists(tmp_path):
+                    os.replace(tmp_path, self.state_file)
+            except Exception as e:
+                print(f"[{self.log_prefix}] Save state file err: {e}", flush=True)
+
             note_content = f"STATE:POS={round(cur_sec, 1)};TRK={t_file};IDX={self.current_index};VOL={vol}"
-            supervisor_update_radio_note(note_content)
+            supervisor_update_account_note(self.tt_user, note_content)
         except Exception as e:
-            print(f"[Radio] persist_state err: {e}", flush=True)
+            print(f"[{self.log_prefix}] persist_state err: {e}", flush=True)
 
     def restore_track_index(self):
         with self.lock:
@@ -3214,22 +3417,20 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                         self.current_index = idx
                         return
 
-            # 1. Match by last_track_file (exact file match)
             target_file = getattr(self, "last_track_file", "")
             if target_file:
                 for idx, t in enumerate(self.playlist):
                     if os.path.basename(t.get("path", "")) == target_file:
                         self.current_index = idx
-                        print(f"[Radio] Restored track by filename to index {idx}: {target_file}", flush=True)
+                        print(f"[{self.log_prefix}] Restored track by filename to index {idx}: {target_file}", flush=True)
                         return
 
-            # 2. Match by last_track_name
             target_name = getattr(self, "last_track_name", "")
             if target_name:
                 for idx, t in enumerate(self.playlist):
                     if t.get("title") == target_name:
                         self.current_index = idx
-                        print(f"[Radio] Restored track by title to index {idx}: {target_name}", flush=True)
+                        print(f"[{self.log_prefix}] Restored track by title to index {idx}: {target_name}", flush=True)
                         return
 
                 def norm(s):
@@ -3240,14 +3441,13 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                     for idx, t in enumerate(self.playlist):
                         if nt in norm(t.get("title", "")) or norm(t.get("title", "")) in nt:
                             self.current_index = idx
-                            print(f"[Radio] Restored track by normalized match to index {idx}: {t.get('title')}", flush=True)
+                            print(f"[{self.log_prefix}] Restored track by normalized match to index {idx}: {t.get('title')}", flush=True)
                             return
 
-            # 3. Match by saved_current_index
             saved_idx = getattr(self, "saved_current_index", 0)
             if 0 <= saved_idx < len(self.playlist):
                 self.current_index = saved_idx
-                print(f"[Radio] Restored track to saved index {self.current_index}", flush=True)
+                print(f"[{self.log_prefix}] Restored track to saved index {self.current_index}", flush=True)
 
     def apply_current_volume(self):
         try:
@@ -3255,10 +3455,10 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             gain = int(max(0, min(150, percent)) / 100.0 * 1000)
             if hasattr(self, "_tt") and self._tt:
                 TeamTalk5._SetSoundInputGainLevel(self._tt, gain)
-            print(f"[Radio] apply_current_volume: {percent}% (gain: {gain})", flush=True)
+            print(f"[{self.log_prefix}] apply_current_volume: {percent}% (gain: {gain})", flush=True)
             self.diag.append(f"VOL_SET:{percent}:{gain}")
         except Exception as e:
-            print(f"[Radio] apply_current_volume err: {e}", flush=True)
+            print(f"[{self.log_prefix}] apply_current_volume err: {e}", flush=True)
 
     @staticmethod
     def get_playback_sequence(n):
@@ -3293,7 +3493,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return seq[0]
 
     def tg_api(self, method, params=None):
-        url = f"https://api.telegram.org/bot{RADIO_TG_TOKEN}/{method}"
+        url = f"https://api.telegram.org/bot{self.tg_token}/{method}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
         try:
@@ -3301,7 +3501,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             with urllib.request.urlopen(req, timeout=15) as r:
                 return json.loads(r.read().decode())
         except Exception as e:
-            print(f"[Radio] TG API {method} error: {e}", flush=True)
+            print(f"[{self.log_prefix}] TG API {method} error: {e}", flush=True)
             return {}
 
     def download_tg_file(self, file_id, dest_path):
@@ -3310,7 +3510,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if not finfo.get("ok"):
                 return False
             file_path = finfo["result"]["file_path"]
-            download_url = f"https://api.telegram.org/file/bot{RADIO_TG_TOKEN}/{file_path}"
+            download_url = f"https://api.telegram.org/file/bot{self.tg_token}/{file_path}"
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
             import shutil
@@ -3318,7 +3518,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 shutil.copyfileobj(resp, f)
             return True
         except Exception as e:
-            print(f"[Radio] Download error: {e}", flush=True)
+            print(f"[{self.log_prefix}] Download error: {e}", flush=True)
             return False
 
     def sync_telegram_playlist(self):
@@ -3332,10 +3532,10 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 if not os.path.exists(n_path) or os.path.getsize(n_path) == 0:
                     self.download_tg_file(next_t["file_id"], n_path)
         except Exception as e:
-            print(f"[Radio] Next track prefetch err: {e}", flush=True)
+            print(f"[{self.log_prefix}] Next track prefetch err: {e}", flush=True)
 
         # 2. Ensure all catalog tracks are cached in background
-        for item in BASE_TRACK_CATALOG:
+        for item in self.initial_catalog:
             mid = item.get("msg_id", 0)
             fid = item.get("file_id")
             title = item.get("title") or f"track_{mid}"
@@ -3344,7 +3544,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if not clean_title.endswith(".mp3"):
                 clean_title += ".mp3"
             dest_filename = f"{mid}_{clean_title}"
-            dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
+            dest_path = os.path.join(self.cache_dir, dest_filename)
 
             if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
                 self.download_tg_file(fid, dest_path)
@@ -3371,9 +3571,9 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 if not clean_title.endswith(".mp3"):
                     clean_title += ".mp3"
                 dest_filename = f"{cp['message_id']}_{clean_title}"
-                dest_path = os.path.join(RADIO_CACHE_DIR, dest_filename)
-                display_name = f"{performer} - {title}".strip(" -")
-                track_info = {"msg_id": cp["message_id"], "title": display_name, "path": dest_path, "file_id": file_id}
+                dest_path = os.path.join(self.cache_dir, dest_filename)
+                display_name_track = f"{performer} - {title}".strip(" -")
+                track_info = {"msg_id": cp["message_id"], "title": display_name_track, "path": dest_path, "file_id": file_id}
 
                 with self.lock:
                     if not any(x["path"] == dest_path for x in self.playlist):
@@ -3389,18 +3589,18 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if added_any and self.joined:
                 self.update_player_title()
         except Exception as e:
-            print(f"[Radio] getUpdates poll err: {e}", flush=True)
+            print(f"[{self.log_prefix}] getUpdates poll err: {e}", flush=True)
 
         if self.joined and not getattr(self, "is_streaming", False) and self.playlist:
             threading.Thread(target=self.auto_start_playback, daemon=True).start()
 
     def load_existing_cache(self):
-        if not os.path.exists(RADIO_CACHE_DIR):
+        if not os.path.exists(self.cache_dir):
             return
-        files = sorted(os.listdir(RADIO_CACHE_DIR))
+        files = sorted(os.listdir(self.cache_dir))
         for fname in files:
             if fname.lower().endswith((".mp3", ".m4a", ".ogg", ".wav")):
-                path = os.path.join(RADIO_CACHE_DIR, fname)
+                path = os.path.join(self.cache_dir, fname)
                 title = os.path.splitext(fname)[0]
                 if "_" in title:
                     title = title.split("_", 1)[1]
@@ -3410,8 +3610,8 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                             "title": title,
                             "path": path
                         })
-        print(f"[Radio] Loaded {len(self.playlist)} tracks from cache.", flush=True)
-        if len(self.playlist) >= len(BASE_TRACK_CATALOG):
+        print(f"[{self.log_prefix}] Loaded {len(self.playlist)} tracks from cache.", flush=True)
+        if len(self.playlist) >= len(self.initial_catalog):
             self.syncing_catalog = False
         self.restore_track_index()
 
@@ -3433,22 +3633,22 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         else:
             status_text = f"در حال پخش: {curr_title} | بعدی: {next_title}"
 
-        print(f"[Radio] Updating player title: {status_text}", flush=True)
+        print(f"[{self.log_prefix}] Updating player title: {status_text}", flush=True)
         try:
             self.doChangeStatus(0, status_text)
             self.diag.append(f"TITLE:{'HIDDEN' if getattr(self, 'title_hidden', False) else curr_title[:8]}")
         except Exception as e:
-            print(f"[Radio] doChangeStatus error: {e}", flush=True)
+            print(f"[{self.log_prefix}] doChangeStatus error: {e}", flush=True)
 
     def send_chat(self, text):
         if not self.joined:
             return
         try:
-            msgs = TeamTalk5.buildTextMessage(text, TeamTalk5.TextMsgType.MSGTYPE_CHANNEL, nChannelID=RADIO_CHAN_ID)
+            msgs = TeamTalk5.buildTextMessage(text, TeamTalk5.TextMsgType.MSGTYPE_CHANNEL, nChannelID=self.chan_id)
             for m in msgs:
                 self.doTextMessage(m)
         except Exception as e:
-            print(f"[Radio] send_chat error: {e}", flush=True)
+            print(f"[{self.log_prefix}] send_chat error: {e}", flush=True)
 
     def auto_start_playback(self):
         with self.play_lock:
@@ -3462,7 +3662,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.update_player_title()
             if self.playlist and not getattr(self, "is_streaming", False):
                 start_at = getattr(self, "resume_pos_sec", 0.0)
-                print(f"[Radio] Auto-starting playback from saved position: {start_at:.1f}s", flush=True)
+                print(f"[{self.log_prefix}] Auto-starting playback from saved position: {start_at:.1f}s", flush=True)
                 self.play_track(self.current_index, start_sec=start_at)
         finally:
             with self.play_lock:
@@ -3497,20 +3697,20 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         file_id = track.get("file_id")
         if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
             if file_id:
-                print(f"[Radio] Downloading active track on-demand: {track['title']}", flush=True)
+                print(f"[{self.log_prefix}] Downloading active track on-demand: {track['title']}", flush=True)
                 self.download_tg_file(file_id, track_path)
 
         if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
-            print(f"[Radio] Track file not ready for {track['title']}. Advancing to next...", flush=True)
+            print(f"[{self.log_prefix}] Track file not ready for {track['title']}. Advancing to next...", flush=True)
             self.play_next()
             return
 
         self.apply_current_volume()
-        print(f"[Radio] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
+        print(f"[{self.log_prefix}] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
         try:
             self.voice_player.play(track_path, start_sec=start_sec)
         except Exception as e:
-            print(f"[Radio] Playback launch error: {e}", flush=True)
+            print(f"[{self.log_prefix}] Playback launch error: {e}", flush=True)
             self.diag.append(f"PLAY_ERR:{type(e).__name__}")
 
     def stop_all_playback(self):
@@ -3539,7 +3739,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 time.sleep(2)
                 self.play_next()
         except Exception as e:
-            print(f"[Radio] stream_media_file_fallback err: {e}", flush=True)
+            print(f"[{self.log_prefix}] stream_media_file_fallback err: {e}", flush=True)
             self.play_next()
 
     def play_next(self, admin_name=None):
@@ -3557,43 +3757,45 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.play_track(prev_idx, start_sec=0.0)
 
     def set_volume(self, percent, admin_name=None):
-        global SAVED_RADIO_VOLUME
         percent = max(0, min(150, percent))
         self.volume_percent = percent
-        SAVED_RADIO_VOLUME = percent
-        save_persistent_config("volume_percent", percent)
+        save_persistent_config(f"{self.config_prefix}_volume_percent", percent)
+        if self.config_prefix == "radio":
+            global SAVED_RADIO_VOLUME
+            SAVED_RADIO_VOLUME = percent
+            save_persistent_config("volume_percent", percent)
         self.persist_state()
         self.apply_current_volume()
-        
-        msg = f"🔊 بلندی صدای رادیو روی {percent}٪ تنظیم شد و به صورت دائم ذخیره گردید."
+
+        msg = f"🔊 بلندی صدای {self.display_name} روی {percent}٪ تنظیم شد و به صورت دائم ذخیره گردید."
         if admin_name:
             msg += f" (توسط {admin_name})"
         self.send_chat(msg)
 
     def schedule_file_auto_delete(self, chan_id, file_id, file_name, delay_sec=240):
         def _delete_worker():
-            print(f"[Radio] Auto-delete countdown started: '{file_name}' (ID: {file_id}) will be deleted in {delay_sec}s", flush=True)
+            print(f"[{self.log_prefix}] Auto-delete countdown started: '{file_name}' (ID: {file_id}) will be deleted in {delay_sec}s", flush=True)
             time.sleep(delay_sec)
             try:
-                print(f"[Radio] Deleting expired file '{file_name}' (ID: {file_id})...", flush=True)
+                print(f"[{self.log_prefix}] Deleting expired file '{file_name}' (ID: {file_id})...", flush=True)
                 self.doDeleteFile(chan_id, file_id)
                 self.send_chat(f"🗑 فایل موقت «{file_name}» پس از پایان مهلت ۴ دقیقه‌ای دانلود، با موفقیت از روم پاکسازی شد.")
             except Exception as e:
-                print(f"[Radio] doDeleteFile error: {e}", flush=True)
+                print(f"[{self.log_prefix}] doDeleteFile error: {e}", flush=True)
         threading.Thread(target=_delete_worker, daemon=True).start()
 
     def cleanup_old_channel_files(self):
         try:
-            files = self.getChannelFiles(RADIO_CHAN_ID)
+            files = self.getChannelFiles(self.chan_id)
             for rf in files:
                 owner = TeamTalk5.ttstr(rf.szUsername).strip()
-                if owner in [RADIO_TT_USER, RADIO_TT_NICK, ""] or not owner:
+                if owner in [self.tt_user, self.tt_nick, ""] or not owner:
                     fid = rf.nFileID
                     fname = TeamTalk5.ttstr(rf.szFileName)
-                    print(f"[Radio] Auto-cleaning stale file on join: {fname} (ID {fid})", flush=True)
-                    self.doDeleteFile(RADIO_CHAN_ID, fid)
+                    print(f"[{self.log_prefix}] Auto-cleaning stale file on join: {fname} (ID {fid})", flush=True)
+                    self.doDeleteFile(self.chan_id, fid)
         except Exception as e:
-            print(f"[Radio] cleanup_old_channel_files error: {e}", flush=True)
+            print(f"[{self.log_prefix}] cleanup_old_channel_files error: {e}", flush=True)
 
     def upload_current_to_channel(self, requester_name):
         if not self.current_track or not os.path.exists(self.current_track["path"]):
@@ -3601,11 +3803,11 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return
         track = self.current_track
         try:
-            print(f"[Radio] Uploading {track['path']} to room for {requester_name}...", flush=True)
+            print(f"[{self.log_prefix}] Uploading {track['path']} to room for {requester_name}...", flush=True)
             self.send_chat(f"⏳ در حال آپلود فایل «{track['title']}» در بخش فایل‌های روم برای {requester_name} (مهلت دانلود: ۴ دقیقه)...")
-            self.doSendFile(RADIO_CHAN_ID, track["path"])
+            self.doSendFile(self.chan_id, track["path"])
         except Exception as e:
-            print(f"[Radio] doSendFile error: {e}", flush=True)
+            print(f"[{self.log_prefix}] doSendFile error: {e}", flush=True)
             self.send_chat(f"❌ خطا در قرار دادن فایل آهنگ: {e}")
 
     def onCmdError(self, nSource, clienterrormsg):
@@ -3613,37 +3815,37 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             n_err = getattr(clienterrormsg, "nErrorNo", getattr(clienterrormsg, "nError", 0))
             err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
             self.diag.append(f"CMD_ERR:{nSource}:{n_err}:{err_msg}")
-            print(f"[Radio] CMD ERROR (src {nSource}): {n_err} - {err_msg}", flush=True)
+            print(f"[{self.log_prefix}] CMD ERROR (src {nSource}): {n_err} - {err_msg}", flush=True)
             if "already in channel" in err_msg.lower() or n_err == 1016:
                 self.joined = True
         except Exception as e:
-            print(f"[Radio] onCmdError handler err: {e}", flush=True)
+            print(f"[{self.log_prefix}] onCmdError handler err: {e}", flush=True)
 
     def onCmdSuccess(self, nSource):
         self.diag.append(f"CMD_OK:{nSource}")
-        print(f"[Radio] CMD SUCCESS (src {nSource})", flush=True)
+        print(f"[{self.log_prefix}] CMD SUCCESS (src {nSource})", flush=True)
 
     def onCmdProcessing(self, nSource, bCompleted):
         pass
 
     def onConnectSuccess(self):
         self.diag.append("CON_SUCCESS")
-        print("[Radio] Connected to TeamTalk server!", flush=True)
+        print(f"[{self.log_prefix}] Connected to TeamTalk server!", flush=True)
         self.connected = True
         self.last_connected_at = time.time()
-        cmd_id = self.doLogin(RADIO_TT_NICK, RADIO_TT_USER, RADIO_TT_PASS, "TeamTalk5")
+        cmd_id = self.doLogin(self.tt_nick, self.tt_user, self.tt_pass, "TeamTalk5")
         self.diag.append(f"LOGIN_CMD:{cmd_id}")
 
     def onConnectFailed(self):
         self.diag.append("CON_FAILED")
-        print("[Radio] Connect failed! Recreating instance...", flush=True)
+        print(f"[{self.log_prefix}] Connect failed! Recreating instance...", flush=True)
         self.connected = False
         self.persist_state()
         self.restart_requested = True
 
     def onConnectionLost(self):
         self.diag.append("CON_LOST")
-        print("[Radio] Connection lost! Preserving playback position and recreating instance...", flush=True)
+        print(f"[{self.log_prefix}] Connection lost! Preserving playback position and recreating instance...", flush=True)
         self.persist_state()
         self.connected = False
         self.logged_in = False
@@ -3653,13 +3855,12 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
 
     def onCmdMyselfLoggedIn(self, my_id, user_account):
         self.diag.append(f"LOGGED_IN:{my_id}")
-        print(f"[Radio] Logged in! MyID: {my_id}", flush=True)
+        print(f"[{self.log_prefix}] Logged in! MyID: {my_id}", flush=True)
         self.logged_in = True
         self.my_user_id = my_id
         self.apply_current_volume()
-        self.doChangeNickname(RADIO_TT_NICK)
+        self.doChangeNickname(self.tt_nick)
 
-        # Restore state from server account note if local position is 0
         try:
             if user_account and hasattr(user_account, "szNote"):
                 note_str = TeamTalk5.ttstr(user_account.szNote).strip()
@@ -3675,9 +3876,9 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                             self.current_index = s_idx
                         if s_trk:
                             self.last_track_file = s_trk
-                        print(f"[Radio] Restored cold-start state from TeamTalk account note: pos={s_pos:.1f}s, trk={s_trk}", flush=True)
+                        print(f"[{self.log_prefix}] Restored cold-start state from account note: pos={s_pos:.1f}s, trk={s_trk}", flush=True)
         except Exception as e:
-            print(f"[Radio] Account note restore err: {e}", flush=True)
+            print(f"[{self.log_prefix}] Account note restore err: {e}", flush=True)
 
         my_chan = 0
         try:
@@ -3687,54 +3888,53 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         except Exception:
             pass
 
-        if my_chan == RADIO_CHAN_ID:
-            print(f"[Radio] Already in channel {RADIO_CHAN_ID} via initchan!", flush=True)
+        if my_chan == self.chan_id:
+            print(f"[{self.log_prefix}] Already in destination channel {self.chan_id} via initchan!", flush=True)
             self.joined = True
             threading.Thread(target=self.auto_start_playback, daemon=True).start()
         else:
-            res = self.doJoinChannelByID(RADIO_CHAN_ID, "")
+            res = self.doJoinChannelByID(self.chan_id, "")
             self.diag.append(f"JOIN_CMD:{res}")
 
     def onCmdUserJoinedChannel(self, user):
         my_id = getattr(self, "my_user_id", self.getMyUserID())
         self.diag.append(f"JOIN:{user.nUserID}:{user.nChannelID}")
         if user.nUserID == my_id:
-            if user.nChannelID == RADIO_CHAN_ID:
-                print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
+            if user.nChannelID == self.chan_id:
+                print(f"[{self.log_prefix}] Joined destination channel {user.nChannelID} successfully!", flush=True)
                 self.joined = True
                 self.apply_current_volume()
                 threading.Thread(target=self.auto_start_playback, daemon=True).start()
             else:
-                # وظیفه ۲ به عهده خود رادیو: در صورت جابجایی به هر کانال دیگر، فوراً خود رادیو به کانال ۲ بازمی‌گردد
-                print(f"[Radio Self-Guard] رادیو به کانال {user.nChannelID} منتقل شد. بازگشت خودکار رادیو به کانال {RADIO_CHAN_ID}...", flush=True)
+                print(f"[{self.log_prefix} Self-Guard] جابجایی به کانال {user.nChannelID}. بازگشت خودکار به کانال {self.chan_id}...", flush=True)
                 self.joined = False
-                self.doJoinChannelByID(RADIO_CHAN_ID, "")
+                self.doJoinChannelByID(self.chan_id, "")
 
     def onCmdMyselfKickedFromChannel(self, nSource, user):
-        print("[Radio] Bot left or kicked. Preserving position and rejoining immediately...", flush=True)
+        print(f"[{self.log_prefix}] Bot left or kicked. Preserving position and rejoining immediately...", flush=True)
         self.joined = False
         try:
             self.persist_state()
         except Exception:
             pass
-        self.doJoinChannelByID(RADIO_CHAN_ID, "")
+        self.doJoinChannelByID(self.chan_id, "")
 
     def onStreamMediaFile(self, mediafileinfo):
         status = getattr(mediafileinfo, "nStatus", -1)
         self.diag.append(f"MFS:{status}")
         if status in [TeamTalk5.MediaFileStatus.MFS_FINISHED, TeamTalk5.MediaFileStatus.MFS_ERROR, TeamTalk5.MediaFileStatus.MFS_ABORTED]:
-            print(f"[Radio] Track ended (status {status}). Playing next...", flush=True)
+            print(f"[{self.log_prefix}] Track ended (status {status}). Playing next...", flush=True)
             self.is_streaming = False
             threading.Thread(target=self.play_next, daemon=True).start()
 
     def onCmdFileNew(self, remotefile):
-        if remotefile.nChannelID == RADIO_CHAN_ID:
+        if remotefile.nChannelID == self.chan_id:
             fname = TeamTalk5.ttstr(remotefile.szFileName)
             owner = TeamTalk5.ttstr(remotefile.szUsername).strip()
             fid = remotefile.nFileID
             chid = remotefile.nChannelID
-            print(f"[Radio] File ready in room: {fname} (ID {fid}, Owner: {owner})", flush=True)
-            if owner in [RADIO_TT_USER, RADIO_TT_NICK, ""] or not owner:
+            print(f"[{self.log_prefix}] File ready in room: {fname} (ID {fid}, Owner: {owner})", flush=True)
+            if owner in [self.tt_user, self.tt_nick, ""] or not owner:
                 self.send_chat(f"✅ فایل «{fname}» در بخش فایل‌های روم قرار گرفت. این فایل به مدت ۴ دقیقه برای دانلود در دسترس است و پس از آن خودکار حذف خواهد شد.")
                 self.schedule_file_auto_delete(chid, fid, fname, delay_sec=240)
             else:
@@ -3744,21 +3944,21 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         sender = TeamTalk5.ttstr(textmessage.szFromUsername).strip()
         sender_lower = sender.lower()
         msg_text = TeamTalk5.ttstr(textmessage.szMessage).strip().lower()
-        
-        print(f"[Radio] Chat from [{sender}]: {msg_text}", flush=True)
-        
+
+        print(f"[{self.log_prefix}] Chat from [{sender}]: {msg_text}", flush=True)
+
         if msg_text in ["dl", "دانلود"]:
             threading.Thread(target=self.upload_current_to_channel, args=(sender,), daemon=True).start()
             return
-            
-        is_admin = (sender_lower in RADIO_ADMINS)
+
+        is_admin = (sender_lower in self.admins)
         if not is_admin:
             try:
                 user = self.getUser(textmessage.nFromUserID)
                 if user and (getattr(user, "uUserType", 0) & 3 != 0):
                     is_admin = True
                 elif hasattr(self, "_tt") and self._tt:
-                    is_admin = bool(TeamTalk5._IsChannelOperator(self._tt, RADIO_CHAN_ID, textmessage.nFromUserID))
+                    is_admin = bool(TeamTalk5._IsChannelOperator(self._tt, self.chan_id, textmessage.nFromUserID))
             except Exception:
                 pass
 
@@ -3799,7 +3999,7 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 os._exit(0)
             elif msg_text in ["help", "راهنما"]:
                 help_text = (
-                    "📋 راهنمای دستورات رادیو کافه دوستی:\n"
+                    f"📋 راهنمای دستورات {self.display_name}:\n"
                     "• دستور dl یا دانلود: قرار دادن آهنگ فعلی در فایل‌های کانال (همه کاربران)\n"
                     "• دستور n یا بعدی: پخش آهنگ بعدی (مدیران)\n"
                     "• دستور b یا قبلی: پخش آهنگ قبلی (مدیران)\n"
@@ -3809,13 +4009,169 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 )
                 self.send_chat(help_text)
 
-def radio_telegram_sync_worker(bot):
+
+class RadioMusicBot(BaseMusicBot):
+    def __init__(self):
+        super().__init__(
+            bot_type="radio",
+            chan_id=RADIO_CHAN_ID,
+            tt_user=RADIO_TT_USER,
+            tt_pass=RADIO_TT_PASS,
+            tt_nick=RADIO_TT_NICK,
+            tg_token=RADIO_TG_TOKEN,
+            tg_channel=RADIO_TG_CHANNEL,
+            cache_dir=RADIO_CACHE_DIR,
+            state_file=RADIO_STATE_FILE,
+            config_prefix="radio",
+            initial_catalog=BASE_TRACK_CATALOG,
+            log_prefix="Radio",
+            display_name="رادیو کافه دوستی",
+            admins=RADIO_ADMINS
+        )
+
+
+class NostalgiaMusicBot(BaseMusicBot):
+    def __init__(self):
+        super().__init__(
+            bot_type="nostalgia",
+            chan_id=NOSTALGIA_CHAN_ID,
+            tt_user=NOSTALGIA_TT_USER,
+            tt_pass=NOSTALGIA_TT_PASS,
+            tt_nick=NOSTALGIA_TT_NICK,
+            tg_token=NOSTALGIA_TG_TOKEN,
+            tg_channel=NOSTALGIA_TG_CHANNEL,
+            cache_dir=NOSTALGIA_CACHE_DIR,
+            state_file=NOSTALGIA_STATE_FILE,
+            config_prefix="nostalgia",
+            initial_catalog=NOSTALGIA_TRACK_CATALOG,
+            log_prefix="Nostalgia",
+            display_name="نستالژی پلیر کافه دوستی",
+            admins=RADIO_ADMINS
+        )
+
+
+global_radio_bot = None
+global_nostalgia_bot = None
+
+def format_bot_status(b, bot_title, channel_title):
+    if not b:
+        return f"ربات {bot_title} در حال راه‌اندازی است..."
+    flags = 0
+    try:
+        flags = b.getFlags()
+    except Exception:
+        pass
+    lines = [
+        f"لاگ رویدادها: {' | '.join(b.diag[-8:]) if getattr(b, 'diag', None) else 'هیچ'}",
+        f"فلگ کلاینت: {hex(flags)}",
+        f"وضعیت اتصال: {'متصل به سرور' if b.connected else 'قطع از سرور'}",
+        f"ورود به حساب: {'موفق' if b.logged_in else 'ناموفق'}",
+        f"حضور در کانال {channel_title}: {'بله' if b.joined else 'خیر'}",
+        f"وضعیت پخش موزیک: {'در حال پخش' if b.is_streaming else 'متوقف'}",
+        f"وضعیت تایتل: {'مخفی' if getattr(b, 'title_hidden', False) else 'نمایان'}",
+        f"میزان صدا: {b.volume_percent} درصد",
+        f"تعداد آهنگ‌های موجود: {len(b.playlist)} قطعه",
+    ]
+    if b.current_track:
+        next_idx = b.get_next_track_index(b.current_index) if b.playlist else 0
+        next_track = b.playlist[next_idx] if b.playlist else {}
+        lines.append(f"قطعه فعلی ({b.current_index + 1}/{len(b.playlist)}): {b.current_track.get('title')}")
+        lines.append(f"قطعه بعدی: {next_track.get('title', 'ندارد')}")
+    else:
+        lines.append("قطعه فعلی: آهنگی در حال پخش نیست")
+    return "\n".join(lines)
+
+def get_radio_status():
+    return format_bot_status(globals().get("global_radio_bot"), "رادیو کافه دوستی", "۲ (رادیو کافه دوستی)")
+
+def get_nostalgia_status():
+    return format_bot_status(globals().get("global_nostalgia_bot"), "نستالژی پلیر", "۵ (آلاچیق)")
+
+
+def music_telegram_sync_worker(bot):
     while not getattr(bot, "restart_requested", False):
         try:
             bot.sync_telegram_playlist()
         except Exception as e:
-            print(f"[Radio] Sync error: {e}", flush=True)
+            print(f"[{bot.log_prefix}] Sync error: {e}", flush=True)
         time.sleep(15)
+
+def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
+    print(f"شروع سرویس {service_name}...", flush=True)
+    ensure_linux_tt_sdk()
+    while True:
+        try:
+            bot = bot_class()
+            globals()[global_var_name] = bot
+            bot.load_existing_cache()
+            threading.Thread(target=music_telegram_sync_worker, args=(bot,), daemon=True).start()
+
+            last_connect_attempt = 0
+            while not getattr(bot, "restart_requested", False):
+                try:
+                    flags = bot.getFlags()
+                    is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
+                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 5):
+                        last_connect_attempt = time.time()
+                        print(f"[{bot.log_prefix}] Connecting to {host}:{port} (TCP-tunneled audio)...", flush=True)
+                        bot.diag.append("DO_CONNECT")
+                        res = bot.connect(host, port, port, 0, 0, False)
+                        bot.diag.append(f"CONN_RES:{res}")
+                        print(f"[{bot.log_prefix}] connect() called, returned: {res}", flush=True)
+                        if not res:
+                            print(f"[{bot.log_prefix}] connect() returned 0. Recreating bot instance...", flush=True)
+                            bot.persist_state()
+                            bot.restart_requested = True
+                            break
+                    bot.runEventLoop(20)
+
+                    now_ts = time.time()
+                    if now_ts - getattr(bot, "_last_self_check", 0) > 4 and getattr(bot, "logged_in", False):
+                        bot._last_self_check = now_ts
+                        try:
+                            my_id = bot.getMyUserID()
+                            u = bot.getUser(my_id)
+                            # وظیفه ۲: بررسی خودکار حضور در اتاق مقصد و بازگشت خودکار در صورت خروج
+                            if u and u.nChannelID != bot.chan_id:
+                                print(f"[{bot.log_prefix} Self-Guard] حضور در کانال {u.nChannelID}. بازگشت مستقل به کانال {bot.chan_id}...", flush=True)
+                                bot.joined = False
+                                bot.doJoinChannelByID(bot.chan_id, "")
+                            elif u and u.nChannelID == bot.chan_id:
+                                bot.joined = True
+                                # وظیفه ۳: پایش خودکار پخش و شروع مجدد در صورت سکوت
+                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False):
+                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 3:
+                                        print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
+                                        threading.Thread(target=bot.auto_start_playback, daemon=True).start()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    bot.diag.append(f"EXC:{type(e).__name__}:{e}")
+                    print(f"[{bot.log_prefix}] Loop err: {e}", flush=True)
+                    time.sleep(1)
+
+            print(f"[{bot.log_prefix}] Restart requested. Disconnecting, releasing C-instance, and restarting...", flush=True)
+            try:
+                bot.stop_all_playback()
+                time.sleep(0.2)
+                bot.disconnect()
+                time.sleep(0.5)
+                if hasattr(bot, "closeTeamTalk"):
+                    bot.closeTeamTalk()
+            except Exception as e:
+                print(f"[{bot.log_prefix}] Disconnect/close err during restart: {e}", flush=True)
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"[{bot.log_prefix}] Fatal error in run_music_bot_loop: {e}", flush=True)
+            time.sleep(3)
+
+
+def start_radio_worker():
+    run_music_bot_loop(RadioMusicBot, "global_radio_bot", "رادیو کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
+
+def start_nostalgia_worker():
+    run_music_bot_loop(NostalgiaMusicBot, "global_nostalgia_bot", "نستالژی پلیر کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
 
 radio_worker_thread = None
 radio_thread_lock = threading.Lock()
@@ -3828,91 +4184,31 @@ def ensure_radio_worker_alive():
             radio_worker_thread = threading.Thread(target=start_radio_worker, daemon=True, name="RadioWorkerThread")
             radio_worker_thread.start()
 
-def start_radio_worker():
-    global global_radio_bot
-    print("شروع سرویس رادیو کافه دوستی...", flush=True)
-    ensure_linux_tt_sdk()
-    while True:
-        try:
-            bot = RadioMusicBot()
-            global_radio_bot = bot
-            bot.load_existing_cache()
-            # Start telegram sync in background so connect() starts immediately without delay
-            threading.Thread(target=radio_telegram_sync_worker, args=(bot,), daemon=True).start()
-            
-            last_connect_attempt = 0
-            while not getattr(bot, "restart_requested", False):
-                try:
-                    flags = bot.getFlags()
-                    is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
-                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 5):
-                        last_connect_attempt = time.time()
-                        print(f"[Radio] Connecting to {RADIO_TT_HOST}:{RADIO_TT_PORT} (TCP-tunneled audio)...", flush=True)
-                        bot.diag.append("DO_CONNECT")
-                        # Setting nUdpPort=0 routes audio cleanly over TCP with 0% packet loss
-                        res = bot.connect(RADIO_TT_HOST, RADIO_TT_PORT, RADIO_TT_PORT, 0, 0, False)
-                        bot.diag.append(f"CONN_RES:{res}")
-                        print(f"[Radio] connect() called, returned: {res}", flush=True)
-                        if not res:
-                            print("[Radio] connect() returned 0 (instance closed). Recreating bot...", flush=True)
-                            bot.persist_state()
-                            bot.restart_requested = True
-                            break
-                    bot.runEventLoop(20)
-                    # خودمدیریتی رادیو (وظایف ۲، ۳ و ۴ مستقیماً به عهده خود رادیو):
-                    now_ts = time.time()
-                    if now_ts - getattr(bot, "_last_self_check", 0) > 4 and getattr(bot, "logged_in", False):
-                        bot._last_self_check = now_ts
-                        try:
-                            my_id = bot.getMyUserID()
-                            u = bot.getUser(my_id)
-                            # وظیفه ۲: بررسی خودکار حضور در اتاق ۲ و بازگشت در صورت خروج
-                            if u and u.nChannelID != RADIO_CHAN_ID:
-                                print(f"[Radio Self-Guard] حضور در کانال {u.nChannelID}. بازگشت مستقل رادیو به کانال {RADIO_CHAN_ID}...", flush=True)
-                                bot.joined = False
-                                bot.doJoinChannelByID(RADIO_CHAN_ID, "")
-                            elif u and u.nChannelID == RADIO_CHAN_ID:
-                                bot.joined = True
-                                # وظیفه ۳: پایش خودکار پخش و شروع مجدد در صورت سکوت
-                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False):
-                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 3:
-                                        print("[Radio Self-Guard] رادیو در کانال ۲ است ولی صدا متوقف است. شروع خودکار پخش توسط خود رادیو...", flush=True)
-                                        threading.Thread(target=bot.auto_start_playback, daemon=True).start()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    bot.diag.append(f"EXC:{type(e).__name__}:{e}")
-                    print(f"[Radio] Loop err: {e}", flush=True)
-                    time.sleep(1)
+nostalgia_worker_thread = None
+nostalgia_thread_lock = threading.Lock()
 
-            print("[Radio] Restart requested. Disconnecting, releasing TeamTalk C-instance, and restarting...", flush=True)
-            try:
-                bot.stop_all_playback()
-                time.sleep(0.2)
-                bot.disconnect()
-                time.sleep(0.5)
-                if hasattr(bot, "closeTeamTalk"):
-                    bot.closeTeamTalk()
-            except Exception as e:
-                print(f"[Radio] Disconnect/close err during restart: {e}", flush=True)
-            time.sleep(1)
-
-        except Exception as e:
-            print(f"[Radio] Fatal error in start_radio_worker: {e}", flush=True)
-            time.sleep(3)
-
+def ensure_nostalgia_worker_alive():
+    global nostalgia_worker_thread
+    with nostalgia_thread_lock:
+        if nostalgia_worker_thread is None or not nostalgia_worker_thread.is_alive():
+            print("[Watchdog] ترد نستالژی پلیر متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید نستالژی پلیر...", flush=True)
+            nostalgia_worker_thread = threading.Thread(target=start_nostalgia_worker, daemon=True, name="NostalgiaWorkerThread")
+            nostalgia_worker_thread.start()
 
 
 # ----------------- سیستم دیده‌بان و پایش خودکار ربات ناظر (Watchdog Engine) -----------------
 def run_supervisor_watchdog():
     """حلقه پایش و دیده‌بان خودکار ربات ناظر (Watchdog Engine)
-    به طور پیوسته وضعیت ربات رادیو را پایش کرده و در صورت هرگونه قطعی، اخراج،
-    یا خروج، بدون وقفه و در سریع‌ترین زمان آن را به کانال ۲ بازگردانده و موزیک را ادامه می‌دهد."""
+    به طور پیوسته وضعیت ربات رادیو و ربات نستالژی پلیر را پایش کرده و در صورت هرگونه قطعی، اخراج،
+    یا خروج، بدون وقفه و در سریع‌ترین زمان آن را به کانال مقصد بازگردانده و موزیک را ادامه می‌دهد."""
     print("دیده‌بان خودکار ربات ناظر (Watchdog Engine) فعال شد و در حال پایش وضعیت ربات‌هاست...", flush=True)
     time.sleep(5)
     while True:
         try:
             ensure_radio_worker_alive()
+            ensure_nostalgia_worker_alive()
+
+            # Check Radio Bot
             b = globals().get("global_radio_bot")
             if b:
                 age = time.time() - getattr(b, "created_at", 0)
@@ -3932,10 +4228,33 @@ def run_supervisor_watchdog():
                         except Exception:
                             pass
                         b.restart_requested = True
+
+            # Check Nostalgia Bot
+            nb = globals().get("global_nostalgia_bot")
+            if nb:
+                age = time.time() - getattr(nb, "created_at", 0)
+                if age > 10:
+                    try:
+                        flags = nb.getFlags()
+                    except Exception:
+                        flags = 0
+
+                    is_connected = (flags & 0x00004000) != 0
+                    is_connecting = (flags & 0x00002000) != 0
+
+                    if not is_connected and not is_connecting:
+                        print("[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
+                        try:
+                            nb.persist_state()
+                        except Exception:
+                            pass
+                        nb.restart_requested = True
+
         except Exception as e:
             print(f"[Watchdog] Error in supervisor watchdog: {e}", flush=True)
 
         time.sleep(5)
+
 
 # ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
 def keep_alive_worker():
@@ -3943,9 +4262,13 @@ def keep_alive_worker():
     while True:
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            req = urllib.request.Request("https://kaafehdoosti-bot.onrender.com/radio_status", headers={'User-Agent': 'SelfKeepAlive/1.0'})
-            with opener.open(req, timeout=15) as resp:
-                pass
+            for path in ["/radio_status", "/nostalgia_status"]:
+                try:
+                    req = urllib.request.Request(f"https://kaafehdoosti-bot.onrender.com{path}", headers={'User-Agent': 'SelfKeepAlive/1.0'})
+                    with opener.open(req, timeout=15) as resp:
+                        pass
+                except Exception:
+                    pass
         except Exception:
             pass
         time.sleep(180)  # هر ۳ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
@@ -3955,7 +4278,9 @@ threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
 ensure_radio_worker_alive()
+ensure_nostalgia_worker_alive()
 threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
+
 
 # ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
 def run_soroush_bot():
