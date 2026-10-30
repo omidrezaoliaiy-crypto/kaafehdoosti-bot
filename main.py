@@ -3042,6 +3042,7 @@ class VoicePlayer:
         self.stop_event.clear()
         self.worker_id += 1
         current_id = self.worker_id
+        self.bot.is_streaming = True
         self.thread = threading.Thread(target=self._play_worker, args=(track_path, start_sec, current_id), daemon=True)
         self.thread.start()
 
@@ -3053,6 +3054,7 @@ class VoicePlayer:
             self.bot.insertAudioBlock(None)
         except Exception:
             pass
+        self.bot.is_streaming = False
 
     def _play_worker(self, track_path, start_sec=0.0, worker_id=0):
         log_p = getattr(self.bot, "log_prefix", "Radio")
@@ -3713,8 +3715,9 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[{self.log_prefix}] send_chat error: {e}", flush=True)
 
     def auto_start_playback(self):
+        vp_alive = bool(hasattr(self, "voice_player") and self.voice_player.thread and self.voice_player.thread.is_alive())
         with self.play_lock:
-            if getattr(self, "is_streaming", False) or getattr(self, "_is_starting_playback", False):
+            if getattr(self, "is_streaming", False) or getattr(self, "_is_starting_playback", False) or vp_alive:
                 return
             self._is_starting_playback = True
 
@@ -3722,7 +3725,8 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.cleanup_old_channel_files()
             self.restore_track_index()
             self.update_player_title()
-            if self.playlist and not getattr(self, "is_streaming", False):
+            vp_alive = bool(hasattr(self, "voice_player") and self.voice_player.thread and self.voice_player.thread.is_alive())
+            if self.playlist and not getattr(self, "is_streaming", False) and not vp_alive:
                 start_at = getattr(self, "resume_pos_sec", 0.0)
                 print(f"[{self.log_prefix}] Auto-starting playback from saved position: {start_at:.1f}s", flush=True)
                 self.play_track(self.current_index, start_sec=start_at)
@@ -4206,8 +4210,9 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                             elif u and u.nChannelID == bot.chan_id:
                                 bot.joined = True
                                 # وظیفه ۳: پایش خودکار پخش و شروع مجدد در صورت سکوت
-                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False):
-                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 3:
+                                vp_alive = bool(hasattr(bot, "voice_player") and bot.voice_player.thread and bot.voice_player.thread.is_alive())
+                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False) and not vp_alive:
+                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 8:
                                         print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
                                         threading.Thread(target=bot.auto_start_playback, daemon=True).start()
                         except Exception:
