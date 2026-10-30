@@ -697,16 +697,7 @@ def monitor_teamtalk_activity():
                                     uid_m = re.search(r'userid=(\d+)', line)
                                     if uid_m:
                                         supervisor_radio_userid = int(uid_m.group(1))
-                            if "radio kaafehdoosti" in line:
-                                c_m = re.search(r'chanid=(\d+)', line)
-                                if c_m and int(c_m.group(1)) != RADIO_CHAN_ID:
-                                    print(f"[Watchdog Event] ربات ناظر تغییر کانال رادیو به {c_m.group(1)} را دید. انتقال فوری به کانال ۲...", flush=True)
-                                    b = globals().get("global_radio_bot")
-                                    if b:
-                                        try:
-                                            b.doJoinChannelByID(RADIO_CHAN_ID, "")
-                                        except Exception:
-                                            pass
+
                 except socket.timeout:
                     continue
         except Exception as e:
@@ -3707,11 +3698,17 @@ class RadioMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def onCmdUserJoinedChannel(self, user):
         my_id = getattr(self, "my_user_id", self.getMyUserID())
         self.diag.append(f"JOIN:{user.nUserID}:{user.nChannelID}")
-        if user.nUserID == my_id and user.nChannelID == RADIO_CHAN_ID:
-            print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
-            self.joined = True
-            self.apply_current_volume()
-            threading.Thread(target=self.auto_start_playback, daemon=True).start()
+        if user.nUserID == my_id:
+            if user.nChannelID == RADIO_CHAN_ID:
+                print(f"[Radio] Joined channel {user.nChannelID} successfully!", flush=True)
+                self.joined = True
+                self.apply_current_volume()
+                threading.Thread(target=self.auto_start_playback, daemon=True).start()
+            else:
+                # وظیفه ۲ به عهده خود رادیو: در صورت جابجایی به هر کانال دیگر، فوراً خود رادیو به کانال ۲ بازمی‌گردد
+                print(f"[Radio Self-Guard] رادیو به کانال {user.nChannelID} منتقل شد. بازگشت خودکار رادیو به کانال {RADIO_CHAN_ID}...", flush=True)
+                self.joined = False
+                self.doJoinChannelByID(RADIO_CHAN_ID, "")
 
     def onCmdMyselfKickedFromChannel(self, nSource, user):
         print("[Radio] Bot left or kicked. Preserving position and rejoining immediately...", flush=True)
@@ -3862,6 +3859,27 @@ def start_radio_worker():
                             bot.restart_requested = True
                             break
                     bot.runEventLoop(20)
+                    # خودمدیریتی رادیو (وظایف ۲، ۳ و ۴ مستقیماً به عهده خود رادیو):
+                    now_ts = time.time()
+                    if now_ts - getattr(bot, "_last_self_check", 0) > 4 and getattr(bot, "logged_in", False):
+                        bot._last_self_check = now_ts
+                        try:
+                            my_id = bot.getMyUserID()
+                            u = bot.getUser(my_id)
+                            # وظیفه ۲: بررسی خودکار حضور در اتاق ۲ و بازگشت در صورت خروج
+                            if u and u.nChannelID != RADIO_CHAN_ID:
+                                print(f"[Radio Self-Guard] حضور در کانال {u.nChannelID}. بازگشت مستقل رادیو به کانال {RADIO_CHAN_ID}...", flush=True)
+                                bot.joined = False
+                                bot.doJoinChannelByID(RADIO_CHAN_ID, "")
+                            elif u and u.nChannelID == RADIO_CHAN_ID:
+                                bot.joined = True
+                                # وظیفه ۳: پایش خودکار پخش و شروع مجدد در صورت سکوت
+                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False):
+                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 3:
+                                        print("[Radio Self-Guard] رادیو در کانال ۲ است ولی صدا متوقف است. شروع خودکار پخش توسط خود رادیو...", flush=True)
+                                        threading.Thread(target=bot.auto_start_playback, daemon=True).start()
+                        except Exception:
+                            pass
                 except Exception as e:
                     bot.diag.append(f"EXC:{type(e).__name__}:{e}")
                     print(f"[Radio] Loop err: {e}", flush=True)
@@ -3907,20 +3925,7 @@ def run_supervisor_watchdog():
                     is_connected = (flags & 0x00004000) != 0
                     is_connecting = (flags & 0x00002000) != 0
 
-                    if is_connected:
-                        if not getattr(b, "joined", False):
-                            try:
-                                b.doJoinChannelByID(RADIO_CHAN_ID, "")
-                            except Exception:
-                                pass
-                        elif getattr(b, "playlist", None) and not getattr(b, "is_streaming", False) and not getattr(b, "_is_starting_playback", False):
-                            if time.time() - getattr(b, "last_track_finish_at", 0) > 3:
-                                print("[Watchdog] رادیو در کانال ۲ است ولی موزیک متوقف است. ادامه خودکار پخش...", flush=True)
-                                try:
-                                    threading.Thread(target=b.auto_start_playback, daemon=True).start()
-                                except Exception:
-                                    pass
-                    elif not is_connecting:
+                    if not is_connected and not is_connecting:
                         print("[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
