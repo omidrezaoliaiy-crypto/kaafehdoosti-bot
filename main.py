@@ -687,14 +687,7 @@ def monitor_teamtalk_activity():
                                     ensure_radio_worker_alive()
                                 except Exception:
                                     pass
-                            elif "hivaplayer" in line or "yalda-player" in line or "music player" in line:
-                                print(f"[Watchdog Alert] ربات ناظر خروج موزیک پلیر دیگر سرور را ثبت کرد: {line}", flush=True)
-                                try:
-                                    u_match = re.search(r'username="([^"]+)"', line)
-                                    u_name_del = u_match.group(1) if u_match else "موزیک پلیر"
-                                    send_message(ADMIN_CHAT_ID, f"⚠️ هشدار ربات ناظر:\nربات موزیک پلیر «{u_name_del}» از سرور خارج شد.")
-                                except Exception:
-                                    pass
+
                         elif "loggedin" in line or "adduser" in line or "updateuser" in line:
                             u_m = re.search(r'username="([^"]+)"', line)
                             if u_m:
