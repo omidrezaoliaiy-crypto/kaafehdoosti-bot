@@ -132,6 +132,59 @@ def run_health_server():
                 self.end_headers()
                 self.wfile.write(b"Nostalgia restart requested")
                 return
+            if self.path == "/debug_test":
+                res = {}
+                try:
+                    import miniaudio
+                    res["miniaudio"] = "OK"
+                except Exception as e:
+                    res["miniaudio"] = f"FAIL: {e}"
+                
+                try:
+                    res["radio_cache"] = os.listdir(globals().get("RADIO_CACHE_DIR", "music_cache"))
+                except Exception as e:
+                    res["radio_cache"] = f"ERR: {e}"
+
+                try:
+                    res["nostalgia_cache"] = os.listdir(globals().get("NOSTALGIA_CACHE_DIR", "music_cache_nostalgia"))
+                except Exception as e:
+                    res["nostalgia_cache"] = f"ERR: {e}"
+
+                nb = globals().get("global_nostalgia_bot")
+                if nb:
+                    res["nostalgia_bot"] = {
+                        "connected": nb.connected,
+                        "logged_in": nb.logged_in,
+                        "joined": nb.joined,
+                        "is_streaming": nb.is_streaming,
+                        "current_index": nb.current_index,
+                        "current_track": nb.current_track,
+                        "playlist_len": len(nb.playlist),
+                        "diag": nb.diag[-15:],
+                        "vp_thread_alive": bool(nb.voice_player.thread and nb.voice_player.thread.is_alive()),
+                        "vp_pos": getattr(nb.voice_player, "current_pos", 0)
+                    }
+
+                rb = globals().get("global_radio_bot")
+                if rb:
+                    res["radio_bot"] = {
+                        "connected": rb.connected,
+                        "logged_in": rb.logged_in,
+                        "joined": rb.joined,
+                        "is_streaming": rb.is_streaming,
+                        "current_index": rb.current_index,
+                        "current_track": rb.current_track,
+                        "playlist_len": len(rb.playlist),
+                        "diag": rb.diag[-15:],
+                        "vp_thread_alive": bool(rb.voice_player.thread and rb.voice_player.thread.is_alive()),
+                        "vp_pos": getattr(rb.voice_player, "current_pos", 0)
+                    }
+
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(res, ensure_ascii=False, indent=2).encode('utf-8'))
+                return
             if self.path == "/probe_nostalgia":
                 b = globals().get("global_nostalgia_bot")
                 if not b:
@@ -3025,6 +3078,7 @@ class VoicePlayer:
             if self.stop_event.is_set() or worker_id != self.worker_id:
                 return
 
+            self.bot.diag.append(f"VP_START:{os.path.basename(track_path)[:8]}")
             raw_pcm = None
             try:
                 import miniaudio
@@ -3035,8 +3089,9 @@ class VoicePlayer:
                     sample_rate=self.sample_rate
                 )
                 raw_pcm = decoded.samples.tobytes()
-            except Exception:
-                pass
+                self.bot.diag.append(f"PCM_OK:{len(raw_pcm)}")
+            except Exception as e_mini:
+                self.bot.diag.append(f"MINI_ERR:{type(e_mini).__name__}")
 
             if not raw_pcm:
                 try:
@@ -3508,17 +3563,24 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         try:
             finfo = self.tg_api("getFile", {"file_id": file_id})
             if not finfo.get("ok"):
+                self.diag.append("GF_FAIL")
                 return False
             file_path = finfo["result"]["file_path"]
             download_url = f"https://api.telegram.org/file/bot{self.tg_token}/{file_path}"
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
+            tmp_dest = dest_path + ".tmp"
             import shutil
-            with urllib.request.urlopen(req, timeout=60) as resp, open(dest_path, "wb") as f:
+            with self.opener.open(req, timeout=60) as resp, open(tmp_dest, "wb") as f:
                 shutil.copyfileobj(resp, f)
-            return True
+            if os.path.exists(tmp_dest) and os.path.getsize(tmp_dest) > 1000:
+                os.replace(tmp_dest, dest_path)
+                self.diag.append(f"DL_OK:{os.path.basename(dest_path)[:8]}")
+                return True
+            return False
         except Exception as e:
             print(f"[{self.log_prefix}] Download error: {e}", flush=True)
+            self.diag.append(f"DL_ERR:{type(e).__name__}")
             return False
 
     def sync_telegram_playlist(self):
@@ -3698,12 +3760,17 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
             if file_id:
                 print(f"[{self.log_prefix}] Downloading active track on-demand: {track['title']}", flush=True)
+                self.diag.append(f"DL_START:{track.get('msg_id', 0)}")
                 self.download_tg_file(file_id, track_path)
 
         if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
             print(f"[{self.log_prefix}] Track file not ready for {track['title']}. Advancing to next...", flush=True)
+            self.diag.append(f"NOT_READY:{track.get('msg_id', 0)}")
+            time.sleep(2)
             self.play_next()
             return
+
+        self.diag.append(f"TRK_READY:{os.path.basename(track_path)[:8]}")
 
         self.apply_current_volume()
         print(f"[{self.log_prefix}] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
