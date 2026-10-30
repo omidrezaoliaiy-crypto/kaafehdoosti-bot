@@ -328,6 +328,7 @@ TT_NICKNAME = "ربات یوزر دهی"
 TT_NAZER_USER = "kaafeh_nazer"
 TT_NAZER_PASS = "SecureNazerPass998877"
 TT_NAZER_NICKNAME = "ربات ناظر"
+CUSTOM_CLIENT_NAME = "اختصاصی کافه دوستی o❤️y"
 
 # دسترسی‌های کاربر تیم‌تاک:
 # بدون ورود هم‌زمان (Multi-login) و بدون ساخت کانال موقت (Temporary channel)
@@ -554,7 +555,7 @@ def get_tt_existing_cached():
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بررسی لیست کاربران" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بررسی لیست کاربران" protocol="5.13" clientname="{CUSTOM_CLIENT_NAME}"\r\n'
         s.sendall(cmd.encode('utf-8'))
         
         time.sleep(1.5)
@@ -635,7 +636,7 @@ def delete_tt_account_server(username):
         s.settimeout(5)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="پاکسازی کاربر غایب" protocol="5.13" clientname="TeamTalk5"\r\n'
+        cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="پاکسازی کاربر غایب" protocol="5.13" clientname="{CUSTOM_CLIENT_NAME}"\r\n'
         s.sendall(cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
@@ -722,7 +723,7 @@ def monitor_teamtalk_activity():
             s.settimeout(15)
             s.connect((TT_HOST, TT_PORT))
             s.recv(4096)
-            login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="TeamTalk5"\r\n'
+            login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="{TT_NAZER_NICKNAME}" protocol="5.13" clientname="{CUSTOM_CLIENT_NAME}"\r\n'
             s.sendall(login_cmd.encode('utf-8'))
             time.sleep(1)
             # پیوستن مستقیم به کانال مدیریت کافه دوستی (chanid=28) با پسورد 12123123
@@ -1227,7 +1228,7 @@ def create_teamtalk_account(username, password, phone):
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
         
-        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ساخت حساب کاربری" protocol="5.13" clientname="TeamTalk5"\r\n'
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="ساخت حساب کاربری" protocol="5.13" clientname="{CUSTOM_CLIENT_NAME}"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         resp = s.recv(8192).decode('utf-8', errors='ignore')
@@ -1258,7 +1259,7 @@ def reset_teamtalk_account(username, password, phone=""):
         s.settimeout(10)
         s.connect((TT_HOST, TT_PORT))
         s.recv(4096)
-        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بازیابی رمز کاربر" protocol="5.13" clientname="TeamTalk5"\r\n'
+        login_cmd = f'login username="{TT_NAZER_USER}" password="{TT_NAZER_PASS}" nickname="بازیابی رمز کاربر" protocol="5.13" clientname="{CUSTOM_CLIENT_NAME}"\r\n'
         s.sendall(login_cmd.encode('utf-8'))
         time.sleep(1)
         s.recv(8192)
@@ -3904,7 +3905,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         print(f"[{self.log_prefix}] Connected to TeamTalk server!", flush=True)
         self.connected = True
         self.last_connected_at = time.time()
-        cmd_id = self.doLogin(self.tt_nick, self.tt_user, self.tt_pass, "TeamTalk5")
+        cmd_id = self.doLogin(self.tt_nick, self.tt_user, self.tt_pass, CUSTOM_CLIENT_NAME)
         self.diag.append(f"LOGIN_CMD:{cmd_id}")
 
     def onConnectFailed(self):
