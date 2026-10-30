@@ -2860,24 +2860,54 @@ def ensure_linux_tt_sdk():
     if sys.platform == "win32":
         return True, "Windows"
     so_path = "libTeamTalk5.so"
-    if os.path.exists(so_path) and os.path.getsize(so_path) > 1000000:
-        return True, "Already extracted"
-    url = "https://bearware.dk/teamtalk/v5.13/teamtalk-v5.13-ubuntu22-x86_64.tgz"
+    if not (os.path.exists(so_path) and os.path.getsize(so_path) > 1000000):
+        url = "https://bearware.dk/teamtalk/v5.13/teamtalk-v5.13-ubuntu22-x86_64.tgz"
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                data = r.read()
+            import tarfile, io
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                found = False
+                for m in tar.getmembers():
+                    if m.name.endswith("libTeamTalk5.so"):
+                        f = tar.extractfile(m)
+                        with open(so_path, "wb") as out:
+                            out.write(f.read())
+                        found = True
+                        break
+                if not found:
+                    return False, "libTeamTalk5.so not found in tar"
+        except Exception as e:
+            return False, f"Download failed: {e}"
+
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=40) as r:
-            data = r.read()
-        import tarfile, io
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-            for m in tar.getmembers():
-                if m.name.endswith("libTeamTalk5.so"):
-                    f = tar.extractfile(m)
-                    with open(so_path, "wb") as out:
-                        out.write(f.read())
-                    return True, f"Extracted libTeamTalk5.so: {os.path.getsize(so_path)} bytes"
-        return False, "libTeamTalk5.so not found in tar"
+        if os.path.exists(so_path):
+            with open(so_path, "r+b") as f:
+                so_data = f.read()
+                modified = False
+                if b"5.13.0.5114" in so_data:
+                    so_data = so_data.replace(b"5.13.0.5114", b"\x00" * 11)
+                    modified = True
+                p1_old = bytes.fromhex("ba0b000000488d3591e0ef00")
+                p1_new = bytes.fromhex("ba00000000488d3591e0ef00")
+                if p1_old in so_data:
+                    so_data = so_data.replace(p1_old, p1_new)
+                    modified = True
+                p2_old = bytes.fromhex("ba0b000000488d358c92ea00")
+                p2_new = bytes.fromhex("ba00000000488d358c92ea00")
+                if p2_old in so_data:
+                    so_data = so_data.replace(p2_old, p2_new)
+                    modified = True
+                if modified:
+                    f.seek(0)
+                    f.write(so_data)
+                    f.truncate()
+                    print("[SDK] Successfully patched libTeamTalk5.so to remove version string!", flush=True)
     except Exception as e:
-        return False, f"Download failed: {e}"
+        print(f"[SDK] Patch warning: {e}", flush=True)
+
+    return True, f"Ready libTeamTalk5.so: {os.path.getsize(so_path)} bytes"
 
 
 # ----------------- بارگذاری SDK تیم‌تاک و راه‌اندازی رادیو کافه دوستی -----------------
