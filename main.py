@@ -4235,46 +4235,53 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
             bot.load_existing_cache()
             threading.Thread(target=music_telegram_sync_worker, args=(bot,), daemon=True).start()
 
-            last_connect_attempt = 0
+            last_connect_attempt = time.time()
+            print(f"[{bot.log_prefix}] Initiating connect to {host}:{port} (TCP-tunneled audio)...", flush=True)
+            bot.diag.append("DO_CONNECT")
+            res = bot.connect(host, port, port, 0, 0, False)
+            bot.diag.append(f"CONN_RES:{res}")
+            print(f"[{bot.log_prefix}] connect() called, returned: {res}", flush=True)
+            if not res:
+                print(f"[{bot.log_prefix}] connect() returned 0. Recreating bot instance...", flush=True)
+                bot.persist_state()
+                bot.restart_requested = True
+
             while not getattr(bot, "restart_requested", False):
                 try:
+                    now_ts = time.time()
                     flags = bot.getFlags()
-                    is_connecting_or_connected = (flags & (0x00002000 | 0x00004000)) != 0
-                    if not is_connecting_or_connected and (time.time() - last_connect_attempt > 5):
-                        last_connect_attempt = time.time()
-                        print(f"[{bot.log_prefix}] Connecting to {host}:{port} (TCP-tunneled audio)...", flush=True)
-                        bot.diag.append("DO_CONNECT")
-                        res = bot.connect(host, port, port, 0, 0, False)
-                        bot.diag.append(f"CONN_RES:{res}")
-                        print(f"[{bot.log_prefix}] connect() called, returned: {res}", flush=True)
-                        if not res:
-                            print(f"[{bot.log_prefix}] connect() returned 0. Recreating bot instance...", flush=True)
+                    is_connected = (flags & 0x00004000) != 0
+
+                    if not is_connected:
+                        if now_ts - last_connect_attempt > 15:
+                            print(f"[{bot.log_prefix}] Connect timeout (>15s, flags={flags}). Forcing reconnection cycle...", flush=True)
                             bot.persist_state()
                             bot.restart_requested = True
                             break
-                    bot.runEventLoop(20)
+                    else:
+                        if getattr(bot, "logged_in", False):
+                            if now_ts - getattr(bot, "_last_self_check", 0) > 4:
+                                bot._last_self_check = now_ts
+                                try:
+                                    my_id = bot.getMyUserID()
+                                    u = bot.getUser(my_id)
+                                    if u and u.nChannelID != bot.chan_id:
+                                        print(f"[{bot.log_prefix} Self-Guard] حضور در کانال {u.nChannelID}. بازگشت مستقل به کانال {bot.chan_id}...", flush=True)
+                                        bot.joined = False
+                                        bot.doJoinChannelByID(bot.chan_id, "")
+                                    elif u and u.nChannelID == bot.chan_id:
+                                        bot.joined = True
+                                        vp_alive = bool(hasattr(bot, "voice_player") and bot.voice_player.thread and bot.voice_player.thread.is_alive())
+                                        is_actively_streaming = getattr(bot, "is_streaming", False) and vp_alive
+                                        if getattr(bot, "playlist", None) and not is_actively_streaming and not getattr(bot, "_is_starting_playback", False):
+                                            if now_ts - getattr(bot, "last_track_finish_at", 0) > 6:
+                                                print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
+                                                bot.is_streaming = False
+                                                threading.Thread(target=bot.auto_start_playback, daemon=True).start()
+                                except Exception:
+                                    pass
 
-                    now_ts = time.time()
-                    if now_ts - getattr(bot, "_last_self_check", 0) > 4 and getattr(bot, "logged_in", False):
-                        bot._last_self_check = now_ts
-                        try:
-                            my_id = bot.getMyUserID()
-                            u = bot.getUser(my_id)
-                            # وظیفه ۲: بررسی خودکار حضور در اتاق مقصد و بازگشت خودکار در صورت خروج
-                            if u and u.nChannelID != bot.chan_id:
-                                print(f"[{bot.log_prefix} Self-Guard] حضور در کانال {u.nChannelID}. بازگشت مستقل به کانال {bot.chan_id}...", flush=True)
-                                bot.joined = False
-                                bot.doJoinChannelByID(bot.chan_id, "")
-                            elif u and u.nChannelID == bot.chan_id:
-                                bot.joined = True
-                                # وظیفه ۳: پایش خودکار پخش و شروع مجدد در صورت سکوت
-                                vp_alive = bool(hasattr(bot, "voice_player") and bot.voice_player.thread and bot.voice_player.thread.is_alive())
-                                if getattr(bot, "playlist", None) and not getattr(bot, "is_streaming", False) and not getattr(bot, "_is_starting_playback", False) and not vp_alive:
-                                    if now_ts - getattr(bot, "last_track_finish_at", 0) > 8:
-                                        print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
-                                        threading.Thread(target=bot.auto_start_playback, daemon=True).start()
-                        except Exception:
-                            pass
+                    bot.runEventLoop(20)
                 except Exception as e:
                     bot.diag.append(f"EXC:{type(e).__name__}:{e}")
                     print(f"[{bot.log_prefix}] Loop err: {e}", flush=True)
@@ -4338,20 +4345,19 @@ def run_supervisor_watchdog():
             ensure_radio_worker_alive()
             ensure_nostalgia_worker_alive()
 
+            now_w = time.time()
             # Check Radio Bot
             b = globals().get("global_radio_bot")
             if b:
-                age = time.time() - getattr(b, "created_at", 0)
-                if age > 10:
+                age = now_w - getattr(b, "created_at", 0)
+                if age > 20:
                     try:
                         flags = b.getFlags()
                     except Exception:
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    is_connecting = (flags & 0x00002000) != 0
-
-                    if not is_connected and not is_connecting:
+                    if not is_connected or not getattr(b, "connected", False):
                         print("[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
@@ -4362,17 +4368,15 @@ def run_supervisor_watchdog():
             # Check Nostalgia Bot
             nb = globals().get("global_nostalgia_bot")
             if nb:
-                age = time.time() - getattr(nb, "created_at", 0)
-                if age > 10:
+                age = now_w - getattr(nb, "created_at", 0)
+                if age > 20:
                     try:
                         flags = nb.getFlags()
                     except Exception:
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    is_connecting = (flags & 0x00002000) != 0
-
-                    if not is_connected and not is_connecting:
+                    if not is_connected or not getattr(nb, "connected", False):
                         print("[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
                         try:
                             nb.persist_state()
@@ -4388,20 +4392,20 @@ def run_supervisor_watchdog():
 
 # ----------------- سیستم بیدار نگه‌داشتن سرور (Keep-Alive Ping) -----------------
 def keep_alive_worker():
-    time.sleep(30)
+    time.sleep(10)
     while True:
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            for path in ["/radio_status", "/nostalgia_status"]:
+            for path in ["/", "/health", "/radio_status", "/nostalgia_status"]:
                 try:
-                    req = urllib.request.Request(f"https://kaafehdoosti-bot.onrender.com{path}", headers={'User-Agent': 'SelfKeepAlive/1.0'})
-                    with opener.open(req, timeout=15) as resp:
+                    req = urllib.request.Request(f"https://kaafehdoosti-bot.onrender.com{path}", headers={'User-Agent': 'Mozilla/5.0 (KeepAlive/2.0)'})
+                    with opener.open(req, timeout=10) as resp:
                         pass
                 except Exception:
                     pass
         except Exception:
             pass
-        time.sleep(180)  # هر ۳ دقیقه یک پینگ ارسال می‌کند تا سرور رندر به خواب نرود
+        time.sleep(60)  # هر ۶۰ ثانیه پینگ فعال ارسال می‌کند
 
 threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
