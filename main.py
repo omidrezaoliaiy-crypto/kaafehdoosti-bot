@@ -751,30 +751,6 @@ def monitor_teamtalk_activity():
             
             while True:
                 now = time.time()
-                if now - last_radio_sync >= 15:
-                    last_radio_sync = now
-                    b = globals().get("global_radio_bot")
-                    if b and getattr(b, "connected", False):
-                        cur_sec = getattr(b, "resume_pos_sec", getattr(b, "current_playback_sec", 0.0))
-                        t_file = getattr(b, "last_track_file", "")
-                        vol = getattr(b, "volume_percent", 100)
-                        idx = getattr(b, "current_index", 0)
-                        note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
-                        if note_content != last_synced_state_radio:
-                            last_synced_state_radio = note_content
-                            supervisor_update_account_note(getattr(b, "tt_user", "radio kaafehdoosti"), note_content)
-
-                    nb = globals().get("global_nostalgia_bot")
-                    if nb and getattr(nb, "connected", False):
-                        cur_sec = getattr(nb, "resume_pos_sec", getattr(nb, "current_playback_sec", 0.0))
-                        t_file = getattr(nb, "last_track_file", "")
-                        vol = getattr(nb, "volume_percent", 100)
-                        idx = getattr(nb, "current_index", 0)
-                        note_content = f"STATE:POS={cur_sec:.1f};TRK={t_file};IDX={idx};VOL={vol}"
-                        if note_content != last_synced_state_nostalgia:
-                            last_synced_state_nostalgia = note_content
-                            supervisor_update_account_note(getattr(nb, "tt_user", "nostalgia player"), note_content)
-
                 if now - last_ping >= 20:
                     try:
                         s.sendall(b'ping\r\n')
@@ -3226,6 +3202,8 @@ class VoicePlayer:
             first_logged = False
             failed_inserts = 0
             chunks_since_save = 0
+            chunks_since_disk_save = 0
+            track_duration_sec = total_len / (self.sample_rate * self.channels * 2)
 
             clock_start = time.perf_counter()
             frame_idx = 0
@@ -3244,12 +3222,20 @@ class VoicePlayer:
                         pass
 
                 chunks_since_save += 1
-                if chunks_since_save >= 100:  # Save position every 2.0s
+                if chunks_since_save >= 50:  # Update position in memory every 1.0s
                     chunks_since_save = 0
                     sec = pos / (self.sample_rate * self.channels * 2)
                     self.bot.current_playback_sec = sec
                     self.bot.resume_pos_sec = sec
-                    self.bot.persist_state()
+
+                chunks_since_disk_save += 1
+                if chunks_since_disk_save >= 1500:  # Persist state to disk safely every 30.0s
+                    chunks_since_disk_save = 0
+                    threading.Thread(target=self.bot.persist_state, daemon=True).start()
+
+                if (time.perf_counter() - clock_start) > (track_duration_sec + 25):
+                    print(f"[{log_p}] Track duration watchdog triggered ({track_duration_sec:.1f}s). Advancing...", flush=True)
+                    break
 
                 if len(chunk) < chunk_size:
                     chunk += bytes(chunk_size - len(chunk))
@@ -3384,6 +3370,8 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.created_at = time.time()
         self.last_connected_at = 0
         self.last_track_finish_at = 0
+        self.last_server_packet_time = time.time()
+        self._last_ping_time = time.time()
 
         self.is_streaming = False
         self.current_track = None
@@ -3507,8 +3495,6 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             except Exception as e:
                 print(f"[{self.log_prefix}] Save state file err: {e}", flush=True)
 
-            note_content = f"STATE:POS={round(cur_sec, 1)};TRK={t_file};IDX={self.current_index};VOL={vol}"
-            supervisor_update_account_note(self.tt_user, note_content)
         except Exception as e:
             print(f"[{self.log_prefix}] persist_state err: {e}", flush=True)
 
@@ -3940,6 +3926,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             self.send_chat(f"❌ خطا در قرار دادن فایل آهنگ: {e}")
 
     def onCmdError(self, nSource, clienterrormsg):
+        self.last_server_packet_time = time.time()
         try:
             n_err = getattr(clienterrormsg, "nErrorNo", getattr(clienterrormsg, "nError", 0))
             err_msg = TeamTalk5.ttstr(clienterrormsg.szErrorMsg)
@@ -3951,11 +3938,12 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             print(f"[{self.log_prefix}] onCmdError handler err: {e}", flush=True)
 
     def onCmdSuccess(self, nSource):
+        self.last_server_packet_time = time.time()
         self.diag.append(f"CMD_OK:{nSource}")
         print(f"[{self.log_prefix}] CMD SUCCESS (src {nSource})", flush=True)
 
     def onCmdProcessing(self, nSource, bCompleted):
-        pass
+        self.last_server_packet_time = time.time()
 
     def onConnectSuccess(self):
         self.diag.append("CON_SUCCESS")
@@ -4246,6 +4234,18 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                 bot.persist_state()
                 bot.restart_requested = True
 
+            try:
+                ka = TeamTalk5.ClientKeepAlive()
+                ka.nConnectionLostMSec = 15000
+                ka.nTcpKeepAliveIntervalMSec = 5000
+                ka.nUdpKeepAliveIntervalMSec = 5000
+                ka.nUdpKeepAliveRTXMSec = 1000
+                ka.nUdpConnectRTXMSec = 1000
+                ka.nUdpConnectTimeoutMSec = 5000
+                TeamTalk5._SetClientKeepAlive(bot._tt, ctypes.byref(ka))
+            except Exception as e_ka:
+                print(f"[{bot.log_prefix}] KeepAlive cfg err: {e_ka}", flush=True)
+
             while not getattr(bot, "restart_requested", False):
                 try:
                     now_ts = time.time()
@@ -4259,6 +4259,30 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                             bot.restart_requested = True
                             break
                     else:
+                        # Actively send ping every 10s to keep connection alive and prevent server 60s timeout
+                        if now_ts - getattr(bot, "_last_ping_time", 0) > 10:
+                            bot._last_ping_time = now_ts
+                            try:
+                                ping_id = bot.doPing()
+                                if ping_id <= 0:
+                                    print(f"[{bot.log_prefix}] doPing failed ({ping_id}). Socket dead! Forcing reconnect...", flush=True)
+                                    bot.persist_state()
+                                    bot.restart_requested = True
+                                    break
+                            except Exception as e_ping:
+                                print(f"[{bot.log_prefix}] doPing err: {e_ping}. Forcing reconnect...", flush=True)
+                                bot.persist_state()
+                                bot.restart_requested = True
+                                break
+
+                        # Check if any packet was received from server in the last 35 seconds
+                        last_server_pkt = getattr(bot, "last_server_packet_time", now_ts)
+                        if now_ts - last_server_pkt > 35:
+                            print(f"[{bot.log_prefix}] Dead socket! No server packets in {now_ts - last_server_pkt:.1f}s. Forcing fresh restart...", flush=True)
+                            bot.persist_state()
+                            bot.restart_requested = True
+                            break
+
                         if getattr(bot, "logged_in", False):
                             if now_ts - getattr(bot, "_last_self_check", 0) > 4:
                                 bot._last_self_check = now_ts
@@ -4357,8 +4381,10 @@ def run_supervisor_watchdog():
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    if not is_connected or not getattr(b, "connected", False):
-                        print("[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
+                    last_pkt = getattr(b, "last_server_packet_time", now_w)
+                    is_silent = (now_w - last_pkt > 40)
+                    if not is_connected or not getattr(b, "connected", False) or is_silent:
+                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
                         except Exception:
@@ -4376,8 +4402,10 @@ def run_supervisor_watchdog():
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    if not is_connected or not getattr(nb, "connected", False):
-                        print("[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد. صدور دستور بازگشت فوری...", flush=True)
+                    last_pkt = getattr(nb, "last_server_packet_time", now_w)
+                    is_silent = (now_w - last_pkt > 40)
+                    if not is_connected or not getattr(nb, "connected", False) or is_silent:
+                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             nb.persist_state()
                         except Exception:
