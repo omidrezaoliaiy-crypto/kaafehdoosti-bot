@@ -311,6 +311,21 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
+# ----------------- سیستم ضد خواب خودکار Render (Anti-Sleep Self-Ping) -----------------
+def render_anti_sleep():
+    time.sleep(20)
+    app_url = os.environ.get("RENDER_EXTERNAL_URL", "https://kaafehdoosti-bot.onrender.com")
+    while True:
+        try:
+            req = urllib.request.Request(f"{app_url}/health", headers={"User-Agent": "AntiSleep-SelfPing/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                pass
+        except Exception:
+            pass
+        time.sleep(240)
+
+threading.Thread(target=render_anti_sleep, daemon=True).start()
+
 
 # ----------------- تنظیمات اصلی تلگرام و سروش پلاس -----------------
 BOT_TOKEN = "8873777481:AAGD4DjF9AebcYqfZen8sUpbxu2wA8pZXqk"
