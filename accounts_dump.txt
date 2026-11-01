@@ -1,0 +1,60 @@
+useraccount username="admin" password="1234yal1234da12344321" usertype=2 userrights=0 userdata=0 audiocodeclimit=0 cmdflood=[0,0] modifiedtime=1784713860
+useraccount username="kaafehdoostibot" password="123" usertype=1 userrights=12582912 userdata=0 audiocodeclimit=0 cmdflood=[0,0] modifiedtime=1793005860
+useraccount username="kaafeh_nazer" password="SecureNazerPass998877" usertype=2 userrights=15990783 userdata=0 audiocodeclimit=0 cmdflood=[0,0] modifiedtime=1793011980
+useraccount username="radio kaafehdoosti" password="radio_kaafeh_123456789_doosti" usertype=1 userrights=12842498 userdata=0 note="ربات موزیک پلیر رادیو کافه دوستی" initchan="/رادیو کافه دوستی/" audiocodeclimit=0 cmdflood=[0,0] modifiedtime=1793121180
+useraccount username="sheyda.estelaji" password="shey123da1234123estelaji123123" usertype=1 userrights=12842498 userdata=0 note="مyalda. ۰۹۳۹۱۶۳۵۳۵۵" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="sajad rashidi" password="123;lje2klj`1321234`123" usertype=1 userrights=12842498 userdata=0 note="+98 918 473 5597\nآخرین بازدید ⁨در ⁨06:51⁩⁩" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="reza ghorabi" password="fee324ffsa" usertype=1 userrights=12842498 userdata=0 note="09026569975" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="nima.afsoon" password="nr3579fd" usertype=1 userrights=12842498 userdata=0 note="م ابوالفضل \n۰۹۹۱۰۷۹۷۹۵۵" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="music player" password="4lkjkfs;ln4asr" usertype=1 userrights=12842496 userdata=0 initchan="/کافه یلدا/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mohsen.sharifi" password="moadafafsamadfasfsaf" usertype=1 userrights=12842498 userdata=0 note="م امید علیایی ش 09391626760" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mohamadreza.mehrabi" password="moh56566rfd44" usertype=1 userrights=12842498 userdata=0 note="م علی اوجانی ۰۹۹۲۶۲۸۱۶۴۷" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mobina" password="ffr432xcaue" usertype=1 userrights=12842498 userdata=0 note="09186445243" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="melika.ahmadi" password="me6896dg" usertype=1 userrights=12842498 userdata=0 note="م سجادرشیدی \n۰۹۹۱۰۲۵۴۲۲۰" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mahya" password="mw1321" usertype=1 userrights=12842498 userdata=0 initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="javad hasani" password="rewre12341233qweqwe123123123" usertype=1 userrights=12842498 userdata=0 note="۰۹۱۵۵۶۲۰۶۴۲" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="jamal wali" password="jamal123123wa123123li41" usertype=1 userrights=12842498 userdata=0 note="مyalda. ۰۹۳۵۸۰۱۰۶۹۹" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="hivaplayer" password="2255hivaplayer331133" usertype=1 userrights=13104640 userdata=0 initchan="/کافه دنج/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="hadi zarei" password="h431d32111zare1123" usertype=1 userrights=12842498 userdata=0 note="۰۹۳۸۵۹۰۵۷۸۶" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="audio player" password="1234123ai dio123" usertype=1 userrights=12842498 userdata=0 initchan="/audio box/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="amir hamzeh.s" password="klwklk234jklh" usertype=1 userrights=12842498 userdata=0 note="09014588641" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="amir ali bari" password="ggred3332cdu" usertype=1 userrights=12842498 userdata=0 note="09373036255" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="amin karimi" password="ggsdsse4r12341234" usertype=1 userrights=12842498 userdata=0 initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="ali ojani" password="ggd3421dydf" usertype=1 userrights=12842498 userdata=0 note="۰۹۳۹۱۲۰۰۴۴۸" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="abolfazl zarghani" password="fffaaabbb123321123" usertype=1 userrights=12842498 userdata=0 note="۰۹۹۱۷۷۵۲۴۴۰" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="abolfazl" password="ff5rexcuc2q" usertype=1 userrights=12842498 userdata=0 note="09232738656" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="ali dehghani" password="555wwer1234" usertype=1 userrights=12842498 userdata=0 note="۰۹۹۶ ۰ ۳۸۰ ۸۱۸" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="arad.monfared" password="ardaaa;kjdddslsdjffanfkd" usertype=1 userrights=12842498 userdata=0 note="ش 09152495364" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="omid.o" password="555tkkewlkj5tiis4o3o" usertype=1 userrights=14942207 userdata=0 note="09396913126" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="ario" password="ari;dkj;kdjkk;dakj" usertype=1 userrights=12842498 userdata=0 note="م امید علیایی ش +98 916 561 6396 دکمه تلفن" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="alichenarli" password="ali22chenar55li11" usertype=1 userrights=12842498 userdata=0 note="۰۹۹۶۵۵۸۷۲۶۱" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="h.rasooli" password="ggfkkp79955bhgfgk" usertype=1 userrights=12842498 userdata=0 note="۰۹۳۳۴۶۲۱۵۱۳" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mehrasa" password="gd573gh5" usertype=1 userrights=12842498 userdata=0 initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="poorya.m" password="gjjggkhvvg5805ew4327" usertype=1 userrights=12842498 userdata=0 note="09226069008" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="alireza.khaki" password="fdy7878u9f" usertype=1 userrights=12842498 userdata=0 note="۰۹۰۳۱۱۸۱۷۲۷" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="amir.afkhami" password="gfkkddhjl87438921fhhdd" usertype=1 userrights=12842498 userdata=0 note="09019261137" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="naazanin.n" password="gjgdji864380fssjkvcvkl" usertype=1 userrights=12842498 userdata=0 note="09109314569" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="javad.ghorbani" password="grrufhjgf674edfuhgdd38" usertype=1 userrights=12842498 userdata=0 note="09306018575" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="baran.n" password="hgdhhgfffh75rr777gf3256ffd" usertype=1 userrights=12842498 userdata=0 note="۰۹۳۵۳۳۹۳۳۱۲" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="ziba.afkhami" password="ggghjdsr56333fd4" usertype=1 userrights=12842498 userdata=0 note="09924091721" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="aarefeh" password="tttyfff56565" usertype=1 userrights=12842498 userdata=0 note="0910 119 8995" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="sinaa.mohamadi" password="fjvru853dgiof7f3" usertype=1 userrights=12842498 userdata=0 note="۰۹۳۰۵۸۲۳۴۳۲" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="yasin" password="y911" usertype=1 userrights=12842498 userdata=0 initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="matin.n" password="matin344733" usertype=1 userrights=12842499 userdata=0 note="09913278316" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="aarezoo.b" password="fhkllbvfllllvvvddssaaz7744e" usertype=1 userrights=12842498 userdata=0 note="۰۹۰۲۳۴۱۵۱۷۳" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="panaah" password="gjvff77457vvd764v4" usertype=1 userrights=12842498 userdata=0 note="مهدی دیلمی" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="zahraa.sh" password="fvko6432cvnp0899bdaaw34" usertype=1 userrights=12842498 userdata=0 note="09174545362" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="nda asdi" password="EI3R4o6Vf6SWbLbDwgU15xEYsSRuho" usertype=1 userrights=12678658 userdata=0 note="09034461561" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="yalda" password="bXINJYbydhKTPi3Um1UR3t6vp4Vifz" usertype=1 userrights=14778367 userdata=0 note="\n09925838163" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="arshiya" password="TsPO2lhUqJjxZDwR2LeACGsF4PcDL1" usertype=1 userrights=12678786 userdata=0 note="09035552029" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="maysam" password="123wer1234qwer1234qwe" usertype=1 userrights=12842498 userdata=0 note="09934420569" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="erfan.m" password="fhhfgii86558uggfr69643cghu" usertype=1 userrights=12842498 userdata=0 note="09102731362" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="abdol" password="ArJLTrWGbu5usFtjqxhpAzXRCzAcOA" usertype=1 userrights=12678658 userdata=0 note="09152706192" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="matin.e" password="Cf4esvUtnn3I6qDIhHCgTlKkslhBY9" usertype=1 userrights=12678658 userdata=0 note="09055995784" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mahtaab" password="hgfgjhgfy789eeyggf3egh" usertype=1 userrights=12842498 userdata=0 note="09960842557" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="shima" password="shi123123123ma123123123123" usertype=1 userrights=12842498 userdata=0 note="09921873608 - م سجاد رشیدی" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="Behzad Shahmoradi" password="Behzad ShahmoradiBehzad Shahmoradi1231234123qwer123Behzad Shahmoradi" usertype=1 userrights=12842498 userdata=0 note="09116437752" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="mohammadmehdihashm.b" password="s0HDuEkMH7Terx2ZMm9n8SUJ4PwM4g" usertype=1 userrights=12678658 userdata=0 note="09936120542" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793277060
+useraccount username="nostalgia player" password="nostalgia_kaafeh_123456789_doosti" usertype=1 userrights=12842498 userdata=0 note="ربات موزیک پلیر نوستالژی کانال آلاچیق" initchan="/آلاچیق/" audiocodeclimit=0 cmdflood=[0,0] modifiedtime=1793307000
+useraccount username="arashshikh.a" password="p6XLeOFUDal6lDDpunANGPiIrY9V4F" usertype=1 userrights=12678658 userdata=0 note="09137408356" initchan="/" audiocodeclimit=0 cmdflood=[30,60000] modifiedtime=1793458140
+ok
