@@ -1,22 +1,47 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# 1. Install NVDA if not already installed
+$nvdaExe = "C:\Program Files (x86)\NVDA\nvda.exe"
+if (-not (Test-Path $nvdaExe)) {
+    $nvdaExe = "C:\Program Files\NVDA\nvda.exe"
+}
+
+if (-not (Test-Path $nvdaExe)) {
+    Write-Host "NVDA not found. Downloading NVDA 2024.4 installer..."
+    $installerUrl = "https://www.nvaccess.org/download/nvda/releases/2024.4/nvda_2024.4.exe"
+    $installerPath = "C:\nvda_installer.exe"
+    try {
+        (New-Object Net.WebClient).DownloadFile($installerUrl, $installerPath)
+        Write-Host "Running NVDA silent installation..."
+        Start-Process -FilePath $installerPath -ArgumentList "--install-silent" -Wait
+        Start-Sleep -Seconds 5
+    } catch {
+        Write-Host "Failed to install NVDA: $_"
+    }
+}
+
+$nvdaExe = "C:\Program Files (x86)\NVDA\nvda.exe"
+if (-not (Test-Path $nvdaExe)) {
+    $nvdaExe = "C:\Program Files\NVDA\nvda.exe"
+}
+
 $nvdaAppdata = "$env:APPDATA\nvda"
 $addonsDir = "$nvdaAppdata\addons"
 $remoteDir = "$addonsDir\remote"
 New-Item -ItemType Directory -Path $remoteDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$nvdaAppdata\addonStore\installedAddons" -Force | Out-Null
 
-# Download and install Remote Support 2.6.4
+# 2. Download and install Remote Support 2.6.4 addon
 $addonZip = "C:\remote_2.6.4.zip"
 $addonUrl = "https://github.com/NVDARemote/NVDARemote/releases/download/v2.6.4/remote-2.6.4.nvda-addon"
 try {
     (New-Object Net.WebClient).DownloadFile($addonUrl, $addonZip)
     Expand-Archive -Path $addonZip -DestinationPath $remoteDir -Force
 } catch {
-    Write-Host "Download failed: $_"
+    Write-Host "Download addon failed: $_"
 }
 
-# Create remote.json
+# 3. Create remote.json
 $remoteJson = @'
 {
   "addonId": "remote",
@@ -53,7 +78,7 @@ $remoteJson = @'
 $remoteJson | Out-File -FilePath "$addonsDir\remote.json" -Encoding utf8
 $remoteJson | Out-File -FilePath "$nvdaAppdata\addonStore\installedAddons\remote.json" -Encoding utf8
 
-# Write remote.ini configured for SLAVE autoconnect
+# 4. Write remote.ini configured for SLAVE autoconnect
 $remoteIni = @"
 [connections]
 	last_connected = ttdr.ir:6837, ttdr.ir
@@ -71,7 +96,7 @@ $remoteIni = @"
 "@
 $remoteIni | Out-File -FilePath "$nvdaAppdata\remote.ini" -Encoding utf8
 
-# Write nvda.ini with Omid's Persian speech and laptop layout settings
+# 5. Write nvda.ini with Omid's Persian speech and laptop layout settings
 $nvdaIni = @"
 schemaVersion = 13
 [general]
@@ -108,22 +133,19 @@ schemaVersion = 13
 "@
 $nvdaIni | Out-File -FilePath "$nvdaAppdata\nvda.ini" -Encoding utf8
 
-# Ensure Windows Audio Service is running
+# 6. Ensure Windows Audio Service is running
 Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
 
-# Restart NVDA
+# 7. Restart NVDA
 Stop-Process -Name nvda -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
-$nvdaExe = "C:\Program Files\NVDA\nvda.exe"
-if (-not (Test-Path $nvdaExe)) {
-    $nvdaExe = "C:\Program Files (x86)\NVDA\nvda.exe"
+if (Test-Path $nvdaExe) {
+    Start-Process $nvdaExe
+    Start-Sleep -Seconds 3
 }
 
-Start-Process $nvdaExe
-Start-Sleep -Seconds 3
-
-# Trigger URL handler
+# 8. Trigger URL handler to ensure connection
 $urlHandler = "$remoteDir\globalPlugins\remoteClient\url_handler.exe"
 if (Test-Path $urlHandler) {
     Start-Process $urlHandler -ArgumentList '"nvdaremote://ttdr.ir:6837?key=!13omid81reza&mode=slave"'
@@ -132,3 +154,4 @@ if (Test-Path $urlHandler) {
 $proc = Get-Process nvda -ErrorAction SilentlyContinue
 $status = "NVDA PID: $($proc.Id), Path: $($proc.Path), Status: SUCCESS, Time: $(Get-Date)"
 $status | Out-File -FilePath "C:\nvda_status_result.txt" -Encoding utf8
+Write-Host $status
