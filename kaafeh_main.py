@@ -3192,7 +3192,7 @@ class VoicePlayer:
 
             buf_type = ctypes.c_byte * chunk_size
             ab = TeamTalk5.AudioBlock()
-            ab.nStreamID = 1
+            ab.nStreamID = TeamTalk5.TT_LOCAL_USERID
             ab.nSampleRate = self.sample_rate
             ab.nChannels = self.channels
             ab.nSamples = samples_per_frame
@@ -4002,6 +4002,11 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.my_user_id = my_id
         self.apply_current_volume()
         self.doChangeNickname(self.tt_nick)
+        try:
+            self.initSoundInputDevice(1978)
+            print(f"[{self.log_prefix}] Virtual Sound Device 1978 initialized!", flush=True)
+        except Exception as e_snd:
+            print(f"[{self.log_prefix}] Sound init err: {e_snd}", flush=True)
 
         try:
             if user_account and hasattr(user_account, "szNote"):
