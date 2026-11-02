@@ -811,28 +811,16 @@ def monitor_teamtalk_activity():
                                 is_nostalgia = True
 
                             if is_radio:
-                                print(f"[Watchdog Event] ربات ناظر خروج یا اخراج آنی ربات رادیو (uid={del_uid}) را ثبت کرد. احیای فوری و ادامه پخش...", flush=True)
+                                print(f"[Watchdog Event] خروج موقت ربات رادیو (uid={del_uid}) ثبت شد.", flush=True)
                                 supervisor_radio_userid = None
-                                if b:
-                                    try:
-                                        b.persist_state()
-                                    except Exception:
-                                        pass
-                                    b.restart_requested = True
                                 try:
                                     ensure_radio_worker_alive()
                                 except Exception:
                                     pass
 
                             if is_nostalgia:
-                                print(f"[Watchdog Event] ربات ناظر خروج یا اخراج آنی نستالژی پلیر (uid={del_uid}) را ثبت کرد. احیای فوری و ادامه پخش...", flush=True)
+                                print(f"[Watchdog Event] خروج موقت نستالژی پلیر (uid={del_uid}) ثبت شد.", flush=True)
                                 supervisor_nostalgia_userid = None
-                                if nb:
-                                    try:
-                                        nb.persist_state()
-                                    except Exception:
-                                        pass
-                                    nb.restart_requested = True
                                 try:
                                     ensure_nostalgia_worker_alive()
                                 except Exception:
@@ -3815,27 +3803,17 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
 
     def play_track(self, index, start_sec=None):
         self.stop_all_playback()
+        time.sleep(0.15)
 
         with self.lock:
             if not self.playlist:
                 return
             new_idx = index % len(self.playlist)
-            if new_idx == self.current_index:
-                if start_sec is None:
-                    start_sec = getattr(self, "resume_pos_sec", 0.0)
-            else:
-                if start_sec is None:
-                    start_sec = 0.0
-
             self.current_index = new_idx
             track = self.playlist[self.current_index]
             self.current_track = track
-
-            if start_sec is None:
-                start_sec = 0.0
-
-            self.current_playback_sec = start_sec
-            self.resume_pos_sec = start_sec
+            self.current_playback_sec = 0.0
+            self.resume_pos_sec = 0.0
             self.persist_state()
 
         track_path = track.get("path")
@@ -3849,43 +3827,52 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
             print(f"[{self.log_prefix}] Track file not ready for {track['title']}. Advancing to next...", flush=True)
             self.diag.append(f"NOT_READY:{track.get('msg_id', 0)}")
-            time.sleep(2)
+            time.sleep(1)
             self.play_next()
             return
 
         self.diag.append(f"TRK_READY:{os.path.basename(track_path)[:8]}")
 
-        self.apply_current_volume()
-        print(f"[{self.log_prefix}] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
-        streamed = False
+        # Ensure bot is inside destination channel before streaming
         try:
-            streamed = bool(self.startStreamingMediaFileToChannel(track_path, None))
-            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel returned: {streamed}", flush=True)
-        except Exception as e_str:
-            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel err: {e_str}", flush=True)
+            my_id = self.getMyUserID()
+            u = self.getUser(my_id)
+            if not u or u.nChannelID != self.chan_id:
+                print(f"[{self.log_prefix}] Ensuring channel {self.chan_id} (currently {getattr(u, 'nChannelID', None)})...", flush=True)
+                self.doJoinChannelByID(self.chan_id, "")
+                for _ in range(15):
+                    self.runEventLoop(50)
+                    u = self.getUser(my_id)
+                    if u and u.nChannelID == self.chan_id:
+                        break
+                    time.sleep(0.04)
+        except Exception as e_ch:
+            print(f"[{self.log_prefix}] Channel verify err: {e_ch}", flush=True)
+
+        self.apply_current_volume()
+        print(f"[{self.log_prefix}] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
+        streamed = False
+        for attempt in range(3):
+            try:
+                streamed = bool(self.startStreamingMediaFileToChannel(track_path, None))
+                if streamed:
+                    break
+            except Exception as e_str:
+                print(f"[{self.log_prefix}] startStreamingMediaFileToChannel err (attempt {attempt+1}): {e_str}", flush=True)
+            time.sleep(0.15)
 
         if streamed:
             self.is_streaming = True
             self.update_player_title()
+            print(f"[{self.log_prefix}] Native streaming started successfully: {track['title']}", flush=True)
         else:
-            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed, falling back to VoicePlayer...", flush=True)
-            try:
-                self.voice_player.play(track_path, start_sec=start_sec)
-            except Exception as e:
-                print(f"[{self.log_prefix}] Playback launch error: {e}", flush=True)
-                self.diag.append(f"PLAY_ERR:{type(e).__name__}")
+            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed after retries for {track_path}", flush=True)
+            time.sleep(2)
+            self.play_next()
 
     def stop_all_playback(self):
         try:
-            self.voice_player.stop()
-        except Exception:
-            pass
-        try:
             self.stopStreamingMediaFileToChannel()
-        except Exception:
-            pass
-        try:
-            self.enableVoiceTransmission(False)
         except Exception:
             pass
         self.is_streaming = False
@@ -4097,9 +4084,18 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
     def onStreamMediaFile(self, mediafileinfo):
         status = getattr(mediafileinfo, "nStatus", -1)
         self.diag.append(f"MFS:{status}")
-        if status in [TeamTalk5.MediaFileStatus.MFS_FINISHED, TeamTalk5.MediaFileStatus.MFS_ERROR, TeamTalk5.MediaFileStatus.MFS_ABORTED]:
-            print(f"[{self.log_prefix}] Track ended (status {status}). Playing next...", flush=True)
+        if status == TeamTalk5.MediaFileStatus.MFS_FINISHED:
+            print(f"[{self.log_prefix}] Track finished naturally (MFS_FINISHED). Playing next...", flush=True)
             self.is_streaming = False
+            self.last_track_finish_at = time.time()
+            threading.Thread(target=self.play_next, daemon=True).start()
+        elif status == TeamTalk5.MediaFileStatus.MFS_ABORTED:
+            # Intentionally aborted or replaced stream - do not play next!
+            self.is_streaming = False
+        elif status == TeamTalk5.MediaFileStatus.MFS_ERROR:
+            print(f"[{self.log_prefix}] Media stream error (status {status}). Waiting 2s before retry...", flush=True)
+            self.is_streaming = False
+            time.sleep(2)
             threading.Thread(target=self.play_next, daemon=True).start()
 
     def onCmdFileNew(self, remotefile):
@@ -4358,10 +4354,10 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                                         bot.doJoinChannelByID(bot.chan_id, "")
                                     elif u and u.nChannelID == bot.chan_id:
                                         bot.joined = True
-                                        vp_alive = bool(hasattr(bot, "voice_player") and bot.voice_player.thread and bot.voice_player.thread.is_alive())
-                                        is_actively_streaming = getattr(bot, "is_streaming", False) and (vp_alive or ((flags & 0x00010000) != 0) or getattr(bot, "is_streaming", False))
+                                        is_actively_streaming = bool(flags & 0x00010000) or getattr(bot, "is_streaming", False)
                                         if getattr(bot, "playlist", None) and not is_actively_streaming and not getattr(bot, "_is_starting_playback", False):
-                                            if now_ts - getattr(bot, "last_track_finish_at", 0) > 6:
+                                            if now_ts - getattr(bot, "last_track_finish_at", 0) > 10:
+                                                bot.last_track_finish_at = now_ts
                                                 print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
                                                 bot.is_streaming = False
                                                 threading.Thread(target=bot.auto_start_playback, daemon=True).start()
@@ -4374,16 +4370,14 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                     print(f"[{bot.log_prefix}] Loop err: {e}", flush=True)
                     time.sleep(1)
 
-            print(f"[{bot.log_prefix}] Restart requested. Disconnecting, releasing C-instance, and restarting...", flush=True)
+            print(f"[{bot.log_prefix}] Restart requested. Disconnecting cleanly and restarting...", flush=True)
             try:
                 bot.stop_all_playback()
                 time.sleep(0.2)
                 bot.disconnect()
                 time.sleep(0.5)
-                if hasattr(bot, "closeTeamTalk"):
-                    bot.closeTeamTalk()
             except Exception as e:
-                print(f"[{bot.log_prefix}] Disconnect/close err during restart: {e}", flush=True)
+                print(f"[{bot.log_prefix}] Disconnect err during restart: {e}", flush=True)
             time.sleep(1)
 
         except Exception as e:
@@ -4449,7 +4443,7 @@ def run_supervisor_watchdog():
             b = globals().get("global_radio_bot")
             if b:
                 age = now_w - getattr(b, "created_at", 0)
-                if age > 20:
+                if age > 35:
                     try:
                         flags = b.getFlags()
                     except Exception:
@@ -4468,7 +4462,7 @@ def run_supervisor_watchdog():
             nb = globals().get("global_nostalgia_bot")
             if nb:
                 age = now_w - getattr(nb, "created_at", 0)
-                if age > 20:
+                if age > 35:
                     try:
                         flags = nb.getFlags()
                     except Exception:
