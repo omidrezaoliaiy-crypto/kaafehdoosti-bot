@@ -3663,7 +3663,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         try:
             if os.path.exists(self.cache_dir):
                 files = [os.path.join(self.cache_dir, f) for f in os.listdir(self.cache_dir) if f.endswith(".mp3")]
-                if len(files) > 4:
+                if False and len(files) > 4:
                     files.sort(key=lambda x: os.path.getmtime(x))
                     protected = set()
                     with self.lock:
