@@ -5,13 +5,22 @@ REPO = 'omidrezaoliaiy-crypto/kaafehdoosti-bot'
 
 res = {}
 try:
-    p = subprocess.run(["powershell", "-Command", "Get-Process python -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, StartTime, Path | Format-Table -AutoSize | Out-String"], capture_output=True, text=True)
-    res['python_procs'] = p.stdout
-    
-    p2 = subprocess.run(["schtasks", "/Query", "/TN", "KaafehDoosti_24_7", "/FO", "LIST"], capture_output=True, text=True)
-    res['task_info'] = p2.stdout
-    
-    res['env_sys'] = os.environ.get("ENABLE_TT_BOTS")
+    dl_file = r"C:\KaafehDoostiBot\vps_download_missing_songs.py"
+    res["dl_file_exists"] = os.path.exists(dl_file)
+    if os.path.exists(dl_file):
+        res["dl_file_size"] = os.path.getsize(dl_file)
+        # Try running it directly with timeout of 5s to catch immediate error
+        try:
+            p = subprocess.run(["C:\\Program Files\\Python311\\python.exe", dl_file], capture_output=True, text=True, timeout=10)
+            res["run_stdout"] = p.stdout
+            res["run_stderr"] = p.stderr
+            res["run_rc"] = p.returncode
+        except subprocess.TimeoutExpired as e:
+            res["run_timeout"] = "Still running after 10s!"
+            res["partial_out"] = e.stdout
+
+    p2 = subprocess.run(["powershell", "-Command", "Get-Process python -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, StartTime, Path | Format-Table -AutoSize | Out-String"], capture_output=True, text=True)
+    res['python_procs'] = p2.stdout
 except Exception as e:
     res['exc'] = str(e)
 
@@ -26,7 +35,7 @@ try:
 except:
     pass
 
-body = {'message': 'Proc audit', 'content': content_b64}
+body = {'message': 'Proc audit with dl check', 'content': content_b64}
 if sha: body['sha'] = sha
 req = urllib.request.Request(put_url, data=json.dumps(body).encode('utf-8'), headers=headers, method='PUT')
 with urllib.request.urlopen(req, timeout=15) as resp:
