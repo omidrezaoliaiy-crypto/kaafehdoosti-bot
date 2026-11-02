@@ -3087,34 +3087,18 @@ class VoicePlayer:
 
     def _play_worker(self, track_path, start_sec=0.0, worker_id=0):
         log_p = getattr(self.bot, "log_prefix", "Radio")
-        chan_id = getattr(self.bot, "chan_id", RADIO_CHAN_ID)
         try:
-            chan_ch = 2
-            chan_sr = 48000
-            try:
-                chan = self.bot.getChannel(chan_id)
-                if getattr(chan.audiocodec, "nCodec", None) == TeamTalk5.Codec.OPUS_CODEC:
-                    c_ch = getattr(chan.audiocodec.opus, "nChannels", 2)
-                    c_sr = getattr(chan.audiocodec.opus, "nSampleRate", 48000)
-                    if c_ch in (1, 2):
-                        chan_ch = c_ch
-                    if c_sr in (8000, 16000, 24000, 48000):
-                        chan_sr = c_sr
-            except Exception as e:
-                print(f"[{log_p}] Channel codec inspect err: {e}", flush=True)
-
-            self.channels = chan_ch
-            self.sample_rate = chan_sr
-
             if self.stop_event.is_set() or worker_id != self.worker_id:
                 return
 
-            self.bot.diag.append(f"VP_START:{os.path.basename(track_path)[:8]}")
+            self.channels = 2
+            self.sample_rate = 48000
+
             raw_pcm = None
             try:
+                import miniaudio
                 with open(track_path, "rb") as f_track:
                     f_bytes = f_track.read()
-                import miniaudio
                 decoded = miniaudio.decode(
                     f_bytes,
                     output_format=miniaudio.SampleFormat.SIGNED16,
@@ -3126,38 +3110,28 @@ class VoicePlayer:
                 del f_bytes
                 import gc
                 gc.collect()
-                self.bot.diag.append(f"PCM_OK:{len(raw_pcm)}")
             except Exception as e_mini:
-                print(f"[{log_p}] miniaudio memory decode error: {e_mini}", flush=True)
-                self.bot.diag.append(f"MINI_ERR:{type(e_mini).__name__}")
-
-            if not raw_pcm:
-                try:
-                    import subprocess
-                    cmd = ["ffmpeg", "-v", "quiet", "-i", track_path, "-f", "s16le", "-ar", str(self.sample_rate), "-ac", str(self.channels), "-"]
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                    raw_pcm = proc.stdout.read()
-                except Exception as e:
-                    print(f"[{log_p}] ffmpeg decode err: {e}", flush=True)
+                print(f"[{log_p}] miniaudio decode error for {track_path}: {e_mini}", flush=True)
 
             if self.stop_event.is_set() or worker_id != self.worker_id:
                 return
 
-            min_chunk = int(self.sample_rate * 0.02) * self.channels * 2
+            samples_per_frame = 1920
+            chunk_size = samples_per_frame * self.channels * 2  # 7680 bytes
+            min_chunk = chunk_size
+
             if not raw_pcm or len(raw_pcm) < min_chunk:
-                print(f"[{log_p}] Direct Voice: Could not decode {os.path.basename(track_path)} to PCM. Skipping to keep playing...", flush=True)
-                self.bot.diag.append("PCM_FAIL_SKIP")
+                print(f"[{log_p}] Microphone Voice: Could not decode {os.path.basename(track_path)} to PCM. Skipping to next...", flush=True)
                 time.sleep(1)
-                self.bot.play_next()
+                if not self.stop_event.is_set() and worker_id == self.worker_id:
+                    self.bot.play_next()
                 return
 
-            samples_per_frame = int(self.sample_rate * 0.02)  # 960 for 20ms at 48kHz
-            chunk_size = samples_per_frame * self.channels * 2
             total_len = len(raw_pcm)
-
-            start_pos = int(start_sec * self.sample_rate) * self.channels * 2
+            bytes_per_sec = self.sample_rate * self.channels * 2  # 192,000 bytes/sec
+            start_pos = int(start_sec * bytes_per_sec)
             start_pos = (start_pos // chunk_size) * chunk_size
-            if 0 < start_pos < total_len - (chunk_size * 50):
+            if 0 < start_pos < total_len - (chunk_size * 25):
                 pos = start_pos
                 print(f"[{log_p}] Resuming playback of {os.path.basename(track_path)} from {start_sec:.1f}s (byte {pos}/{total_len})", flush=True)
             else:
@@ -3167,72 +3141,41 @@ class VoicePlayer:
             sample_index = 0
             self.current_pos = pos
 
-            try:
-                self.bot.enableVoiceTransmission(True)
-            except Exception:
-                pass
-
             self.bot.is_streaming = True
-            sec_now = pos / (self.sample_rate * self.channels * 2)
+            sec_now = pos / bytes_per_sec
             self.bot.current_playback_sec = sec_now
             self.bot.resume_pos_sec = sec_now
             self.bot.update_player_title()
 
             buf_type = ctypes.c_byte * chunk_size
+            raw_buf = buf_type()
+
             ab = TeamTalk5.AudioBlock()
-            ab.nStreamID = TeamTalk5.TT_LOCAL_USERID
+            ab.nStreamID = worker_id
             ab.nSampleRate = self.sample_rate
             ab.nChannels = self.channels
             ab.nSamples = samples_per_frame
             ab.uStreamTypes = TeamTalk5.StreamType.STREAMTYPE_VOICE
-
-            try:
-                dsp = TeamTalk5.SpeexDSP()
-                dsp.bEnableAGC = False
-                dsp.bEnableDenoise = False
-                dsp.bEnableEchoCancellation = False
-                dsp.nGainLevel = int(max(0, min(150, getattr(self.bot, "volume_percent", 100))) / 100.0 * 1000)
-                TeamTalk5._SetSoundInputPreprocess(self.bot._tt, ctypes.byref(dsp))
-            except Exception:
-                pass
-
-            raw_buf = buf_type()
             ab.lpRawAudio = ctypes.cast(raw_buf, ctypes.c_void_p)
+            ab.uSampleIndex = 0
 
-            for _ in range(5):
-                if pos < total_len and not self.stop_event.is_set() and worker_id == self.worker_id:
-                    chunk = raw_pcm[pos:pos + chunk_size]
-                    pos += chunk_size
-                    self.current_pos = pos
-                    if len(chunk) < chunk_size:
-                        chunk += bytes(chunk_size - len(chunk))
-
-                    cur_vol = getattr(self.bot, "volume_percent", 100)
-                    if cur_vol != 100:
-                        try:
-                            import audioop
-                            chunk = audioop.mul(chunk, 2, max(0.0, min(1.5, cur_vol / 100.0)))
-                        except Exception:
-                            pass
-
-                    ctypes.memmove(raw_buf, chunk, len(chunk))
-                    ab.uSampleIndex = sample_index
-                    sample_index += samples_per_frame
-                    self.bot.insertAudioBlock(ab)
-
-            first_logged = False
-            failed_inserts = 0
             chunks_since_save = 0
             chunks_since_disk_save = 0
-            track_duration_sec = total_len / (self.sample_rate * self.channels * 2)
+            track_duration_sec = total_len / bytes_per_sec
 
             clock_start = time.perf_counter()
             frame_idx = 0
+            frame_duration = samples_per_frame / float(self.sample_rate)  # 0.040s
+
+            print(f"[{log_p}] Microphone voice transmission started: {os.path.basename(track_path)} ({track_duration_sec:.1f}s)", flush=True)
 
             while pos < total_len and not self.stop_event.is_set() and worker_id == self.worker_id:
                 chunk = raw_pcm[pos:pos + chunk_size]
-                pos += chunk_size
+                pos += len(chunk)
                 self.current_pos = pos
+
+                if len(chunk) < chunk_size:
+                    chunk += bytes(chunk_size - len(chunk))
 
                 cur_vol = getattr(self.bot, "volume_percent", 100)
                 if cur_vol != 100:
@@ -3242,49 +3185,27 @@ class VoicePlayer:
                     except Exception:
                         pass
 
+                ctypes.memmove(raw_buf, chunk, chunk_size)
+                self.bot.insertAudioBlock(ab)
+
                 chunks_since_save += 1
-                if chunks_since_save >= 50:  # Update position in memory every 1.0s
+                if chunks_since_save >= 25:
                     chunks_since_save = 0
-                    sec = pos / (self.sample_rate * self.channels * 2)
+                    sec = pos / bytes_per_sec
                     self.bot.current_playback_sec = sec
                     self.bot.resume_pos_sec = sec
 
                 chunks_since_disk_save += 1
-                if chunks_since_disk_save >= 1500:  # Persist state to disk safely every 30.0s
+                if chunks_since_disk_save >= 750:
                     chunks_since_disk_save = 0
                     threading.Thread(target=self.bot.persist_state, daemon=True).start()
 
-                if (time.perf_counter() - clock_start) > (track_duration_sec + 25):
-                    print(f"[{log_p}] Track duration watchdog triggered ({track_duration_sec:.1f}s). Advancing...", flush=True)
+                if (time.perf_counter() - clock_start) > (track_duration_sec + 20):
+                    print(f"[{log_p}] Track duration watchdog reached ({track_duration_sec:.1f}s). Advancing...", flush=True)
                     break
 
-                if len(chunk) < chunk_size:
-                    chunk += bytes(chunk_size - len(chunk))
-
-                ctypes.memmove(raw_buf, chunk, len(chunk))
-                ab.uSampleIndex = sample_index
-                sample_index += samples_per_frame
-
-                ins_ok = self.bot.insertAudioBlock(ab)
-                if not first_logged:
-                    self.bot.diag.append(f"FIRST_INS:{ins_ok}")
-                    first_logged = True
-
-                if not ins_ok:
-                    failed_inserts += 1
-                    time.sleep(0.010)
-                    if failed_inserts >= 15:
-                        err = self.bot.getLastError()
-                        msg = self.bot.getClientErrorMsg(err)
-                        print(f"[{log_p}] insertAudioBlock rejected {failed_inserts} times (err {err}: {msg}). Switching to native media streaming...", flush=True)
-                        self.bot.diag.append("INS_FAIL_FALLBACK")
-                        self.bot.stream_media_file_fallback(track_path)
-                        return
-                else:
-                    failed_inserts = 0
-
                 frame_idx += 1
-                target_time = clock_start + (frame_idx * 0.020)
+                target_time = clock_start + (frame_idx * frame_duration)
                 now = time.perf_counter()
                 sleep_sec = target_time - now
                 if sleep_sec > 0.001:
@@ -3301,16 +3222,16 @@ class VoicePlayer:
             if self.stop_event.is_set():
                 if worker_id == self.worker_id:
                     if pos > (start_pos + chunk_size * 25):
-                        sec = pos / (self.sample_rate * self.channels * 2)
+                        sec = pos / bytes_per_sec
                         self.bot.current_playback_sec = sec
                         self.bot.resume_pos_sec = sec
                         self.bot.persist_state()
-                        print(f"[{log_p}] Playback paused/interrupted at {sec:.1f}s - position preserved.", flush=True)
+                        print(f"[{log_p}] Playback paused at {sec:.1f}s - position preserved.", flush=True)
                     else:
-                        print(f"[{log_p}] Playback stopped before streaming. Preserving saved position {self.bot.resume_pos_sec:.1f}s", flush=True)
+                        print(f"[{log_p}] Playback stopped before start threshold. Position {self.bot.resume_pos_sec:.1f}s", flush=True)
             else:
                 if worker_id == self.worker_id:
-                    print(f"[{log_p}] Direct Voice track finished. Resetting position and playing next...", flush=True)
+                    print(f"[{log_p}] Track finished naturally via Microphone. Playing next track...", flush=True)
                     self.bot.current_playback_sec = 0.0
                     self.bot.resume_pos_sec = 0.0
                     self.bot.persist_state()
@@ -3319,13 +3240,13 @@ class VoicePlayer:
                     threading.Thread(target=self.bot.play_next, daemon=True).start()
 
         except Exception as e:
-            print(f"[{log_p}] Direct Voice runtime error: {e}", flush=True)
-            self.bot.diag.append(f"VOICE_ERR:{e}")
+            print(f"[{log_p}] Microphone Voice playback exception: {e}", flush=True)
             try:
                 self.bot.insertAudioBlock(None)
             except Exception:
                 pass
-            if not self.stop_event.is_set():
+            if not self.stop_event.is_set() and worker_id == self.worker_id:
+                time.sleep(1)
                 threading.Thread(target=self.bot.play_next, daemon=True).start()
         finally:
             raw_pcm = None
@@ -3822,18 +3743,20 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             if file_id:
                 print(f"[{self.log_prefix}] Downloading active track on-demand: {track['title']}", flush=True)
                 self.diag.append(f"DL_START:{track.get('msg_id', 0)}")
-                self.download_tg_file(file_id, track_path)
+                try:
+                    self.download_track_sync(track, timeout=120)
+                except Exception as e_dl:
+                    print(f"[{self.log_prefix}] On-demand download failed: {e_dl}", flush=True)
+                    self.diag.append(f"DL_ERR:{e_dl}")
+                    time.sleep(2)
+                    self.play_next()
+                    return
 
-        if not os.path.exists(track_path) or os.path.getsize(track_path) == 0:
-            print(f"[{self.log_prefix}] Track file not ready for {track['title']}. Advancing to next...", flush=True)
-            self.diag.append(f"NOT_READY:{track.get('msg_id', 0)}")
-            time.sleep(1)
+        if not os.path.exists(track_path):
+            print(f"[{self.log_prefix}] Track file missing: {track_path}. Skipping...", flush=True)
             self.play_next()
             return
 
-        self.diag.append(f"TRK_READY:{os.path.basename(track_path)[:8]}")
-
-        # Ensure bot is inside destination channel before streaming
         try:
             my_id = self.getMyUserID()
             u = self.getUser(my_id)
@@ -3849,53 +3772,20 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         except Exception as e_ch:
             print(f"[{self.log_prefix}] Channel verify err: {e_ch}", flush=True)
 
-        self.apply_current_volume()
-        print(f"[{self.log_prefix}] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']}", flush=True)
-        streamed = False
-        for attempt in range(3):
-            try:
-                streamed = bool(self.startStreamingMediaFileToChannel(track_path, None))
-                if streamed:
-                    break
-            except Exception as e_str:
-                print(f"[{self.log_prefix}] startStreamingMediaFileToChannel err (attempt {attempt+1}): {e_str}", flush=True)
-            time.sleep(0.15)
-
-        if streamed:
-            self.is_streaming = True
-            self.update_player_title()
-            print(f"[{self.log_prefix}] Native streaming started successfully: {track['title']}", flush=True)
-        else:
-            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed after retries for {track_path}", flush=True)
-            time.sleep(2)
-            self.play_next()
+        print(f"[{self.log_prefix}] Playing [{self.current_index + 1}/{len(self.playlist)}] via Microphone: {track['title']}", flush=True)
+        self.voice_player.play(track_path, start_sec=start_sec or 0.0)
+        self.is_streaming = True
+        self.update_player_title()
 
     def stop_all_playback(self):
         try:
-            self.stopStreamingMediaFileToChannel()
+            self.voice_player.stop()
         except Exception:
             pass
         self.is_streaming = False
 
     def stream_media_file_fallback(self, track_path):
-        try:
-            print(f"[{self.log_prefix}] Streaming via startStreamingMediaFileToChannel: {os.path.basename(track_path)}", flush=True)
-            ok = self.startStreamingMediaFileToChannel(track_path, None)
-            self.diag.append(f"FALLBACK_STR:{ok}")
-            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel result: {ok}", flush=True)
-            if ok:
-                self.is_streaming = True
-                self.update_player_title()
-            else:
-                err = self.getLastError()
-                msg = self.getClientErrorMsg(err)
-                print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed: {err} ({msg})", flush=True)
-                time.sleep(2)
-                self.play_next()
-        except Exception as e:
-            print(f"[{self.log_prefix}] stream_media_file_fallback error: {e}", flush=True)
-            time.sleep(2)
-            self.play_next()
+        pass
 
     def play_next(self, admin_name=None):
         if not self.playlist:
@@ -4082,21 +3972,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.doJoinChannelByID(self.chan_id, "")
 
     def onStreamMediaFile(self, mediafileinfo):
-        status = getattr(mediafileinfo, "nStatus", -1)
-        self.diag.append(f"MFS:{status}")
-        if status == TeamTalk5.MediaFileStatus.MFS_FINISHED:
-            print(f"[{self.log_prefix}] Track finished naturally (MFS_FINISHED). Playing next...", flush=True)
-            self.is_streaming = False
-            self.last_track_finish_at = time.time()
-            threading.Thread(target=self.play_next, daemon=True).start()
-        elif status == TeamTalk5.MediaFileStatus.MFS_ABORTED:
-            # Intentionally aborted or replaced stream - do not play next!
-            self.is_streaming = False
-        elif status == TeamTalk5.MediaFileStatus.MFS_ERROR:
-            print(f"[{self.log_prefix}] Media stream error (status {status}). Waiting 2s before retry...", flush=True)
-            self.is_streaming = False
-            time.sleep(2)
-            threading.Thread(target=self.play_next, daemon=True).start()
+        pass
 
     def onCmdFileNew(self, remotefile):
         if remotefile.nChannelID == self.chan_id:
@@ -4407,6 +4283,8 @@ radio_worker_thread = None
 radio_thread_lock = threading.Lock()
 
 def ensure_radio_worker_alive():
+    if not ENABLE_TT_BOTS:
+        return
     global radio_worker_thread
     with radio_thread_lock:
         if radio_worker_thread is None or not radio_worker_thread.is_alive():
@@ -4418,6 +4296,8 @@ nostalgia_worker_thread = None
 nostalgia_thread_lock = threading.Lock()
 
 def ensure_nostalgia_worker_alive():
+    if not ENABLE_TT_BOTS:
+        return
     global nostalgia_worker_thread
     with nostalgia_thread_lock:
         if nostalgia_worker_thread is None or not nostalgia_worker_thread.is_alive():
@@ -4428,6 +4308,8 @@ def ensure_nostalgia_worker_alive():
 
 # ----------------- سیستم دیده‌بان و پایش خودکار ربات ناظر (Watchdog Engine) -----------------
 def run_supervisor_watchdog():
+    if not ENABLE_TT_BOTS:
+        return
     """حلقه پایش و دیده‌بان خودکار ربات ناظر (Watchdog Engine)
     به طور پیوسته وضعیت ربات رادیو و ربات نستالژی پلیر را پایش کرده و در صورت هرگونه قطعی، اخراج،
     یا خروج، بدون وقفه و در سریع‌ترین زمان آن را به کانال مقصد بازگردانده و موزیک را ادامه می‌دهد."""
@@ -4513,7 +4395,13 @@ if ENABLE_TT_BOTS:
     time.sleep(3)
     threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
 else:
-    print("[TeamTalk] تمام ربات‌های تیم‌تاک موقتاً طبق دستور غیرفعال شدند تا تست‌ها کامل شوند.", flush=True)
+    print("[TeamTalk] ربات‌های تیم‌تاک طبق دستور ایزوله‌سازی غیرفعال هستند (ENABLE_TT_BOTS=0). فقط وب‌سرور و ربات تلگرام فعالند.", flush=True)
+# OLD: threading.Thread(target=monitor_teamtalk_activity
+ensure_radio_worker_alive()
+time.sleep(5)
+ensure_nostalgia_worker_alive()
+time.sleep(3)
+threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
 
 
 # ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
