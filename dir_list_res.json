@@ -1,0 +1,164 @@
+{
+  "items": [
+    {
+      "name": "accounts_dump.txt",
+      "is_dir": false,
+      "size": 12428
+    },
+    {
+      "name": "avcodec-63.dll",
+      "is_dir": false,
+      "size": 14123832
+    },
+    {
+      "name": "avformat-63.dll",
+      "is_dir": false,
+      "size": 2856248
+    },
+    {
+      "name": "avutil-61.dll",
+      "is_dir": false,
+      "size": 1166136
+    },
+    {
+      "name": "bot_console.log",
+      "is_dir": false,
+      "size": 5675678
+    },
+    {
+      "name": "bot_database.db",
+      "is_dir": false,
+      "size": 36864
+    },
+    {
+      "name": "bot_watchdog.log",
+      "is_dir": false,
+      "size": 116033
+    },
+    {
+      "name": "channels_dump.txt",
+      "is_dir": false,
+      "size": 11053
+    },
+    {
+      "name": "dxcompiler.dll",
+      "is_dir": false,
+      "size": 14317000
+    },
+    {
+      "name": "dxil.dll",
+      "is_dir": false,
+      "size": 1508432
+    },
+    {
+      "name": "main.py",
+      "is_dir": false,
+      "size": 242537
+    },
+    {
+      "name": "main.py.bak",
+      "is_dir": false,
+      "size": 245092
+    },
+    {
+      "name": "music_cache",
+      "is_dir": true,
+      "size": 0
+    },
+    {
+      "name": "music_cache_nostalgia",
+      "is_dir": true,
+      "size": 0
+    },
+    {
+      "name": "nostalgia_state.json",
+      "is_dir": false,
+      "size": 204
+    },
+    {
+      "name": "Qt6Core.dll",
+      "is_dir": false,
+      "size": 10472760
+    },
+    {
+      "name": "Qt6Gui.dll",
+      "is_dir": false,
+      "size": 9683256
+    },
+    {
+      "name": "Qt6Multimedia.dll",
+      "is_dir": false,
+      "size": 1399096
+    },
+    {
+      "name": "Qt6Network.dll",
+      "is_dir": false,
+      "size": 1780536
+    },
+    {
+      "name": "Qt6Svg.dll",
+      "is_dir": false,
+      "size": 608056
+    },
+    {
+      "name": "Qt6TextToSpeech.dll",
+      "is_dir": false,
+      "size": 134968
+    },
+    {
+      "name": "Qt6Widgets.dll",
+      "is_dir": false,
+      "size": 6520120
+    },
+    {
+      "name": "Qt6Xml.dll",
+      "is_dir": false,
+      "size": 158520
+    },
+    {
+      "name": "radio_state.json",
+      "is_dir": false,
+      "size": 239
+    },
+    {
+      "name": "start_bot.bat",
+      "is_dir": false,
+      "size": 435
+    },
+    {
+      "name": "supervisor.py",
+      "is_dir": false,
+      "size": 1178
+    },
+    {
+      "name": "swresample-7.dll",
+      "is_dir": false,
+      "size": 242488
+    },
+    {
+      "name": "swscale-10.dll",
+      "is_dir": false,
+      "size": 1265976
+    },
+    {
+      "name": "TeamTalk5.dll",
+      "is_dir": false,
+      "size": 30676480
+    },
+    {
+      "name": "TeamTalk5.py",
+      "is_dir": false,
+      "size": 73923
+    },
+    {
+      "name": "vps_status.json",
+      "is_dir": false,
+      "size": 281
+    },
+    {
+      "name": "__pycache__",
+      "is_dir": true,
+      "size": 0
+    }
+  ]
+}
