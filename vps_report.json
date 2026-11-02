@@ -1,24 +1,15 @@
 {
-  "timestamp": "2026-11-02 14:24:16",
+  "timestamp": "2026-11-02 14:26:09",
   "music_cache_count": 46,
   "music_cache_nostalgia_count": 245,
   "console_tail": [
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
-    "[Nostalgia] Track ended (status 3). Playing next...",
-    "[Nostalgia] apply_current_volume: 5% (gain: 50)",
-    "[Nostalgia] Playing [2/245]: Abbas Ghaderi - Musicmehr.com - 1 abbas-ghaderii - 1 - 128 - .mp3 (from 0.0s)",
-    "[Nostalgia] startStreamingMediaFileToChannel returned: True",
     "[Nostalgia] Updating player title: در حال پخش: Abbas Ghaderi - Musicmehr.com - 1 abbas-ghaderii - 1 - 128 - .mp3 | بعدی: Mahasti - GahMusic.com - Asir",
-    "[Nostalgia] CMD SUCCESS (src 62)",
+    "[Nostalgia] CMD SUCCESS (src 6)",
+    "دیده‌بان خودکار ربات ناظر (Watchdog Engine) فعال شد و در حال پایش وضعیت ربات‌هاست...",
+    "ربات سروش پلاس کافه دوستی فعال شد و آماده دریافت پیام است...",
+    "ربات تلگرام کافه دوستی فعال شد و آماده دریافت پیام است...",
+    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
+    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
     "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
     "سرور سلامت روی پورت 10000 فعال شد.",
     "[Watchdog] ترد رادیو متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید رادیو...",
@@ -40,8 +31,17 @@
     "[Nostalgia] Restored track by filename to index 1: 3_1 abbas-ghaderii - 1 - 128 - .mp3",
     "[Nostalgia] Initiating connect to 185.26.33.57:10333 (TCP-tunneled audio)...",
     "[Nostalgia] connect() called, returned: 1",
+    "[Nostalgia] Connect failed! Recreating instance...",
+    "[Nostalgia] Restart requested. Disconnecting, releasing C-instance, and restarting...",
+    "816: Connector::close h 1892, no handler",
+    "[Nostalgia] Loaded persistent state: {'volume_percent': 5, 'title_hidden': False, 'last_track_name': 'Abbas Ghaderi - Musicmehr.com - 1 abbas-ghaderii - 1 - 128 - .mp3', 'last_track_file': '3_1 abbas-ghaderii - 1 - 128 - .mp3', 'current_index': 1, 'playback_pos_sec': 0.0}",
+    "[Nostalgia] Restored track by filename to index 1: 3_1 abbas-ghaderii - 1 - 128 - .mp3",
+    "[Nostalgia] Loaded 245 tracks from cache.",
+    "[Nostalgia] Restored track by filename to index 1: 3_1 abbas-ghaderii - 1 - 128 - .mp3",
+    "[Nostalgia] Initiating connect to 185.26.33.57:10333 (TCP-tunneled audio)...",
+    "[Nostalgia] connect() called, returned: 1",
     "[Nostalgia] Connected to TeamTalk server!",
-    "[Nostalgia] Logged in! MyID: 962",
+    "[Nostalgia] Logged in! MyID: 965",
     "[Nostalgia] apply_current_volume: 5% (gain: 50)",
     "[Nostalgia] Virtual Sound Device 1978 initialized!",
     "[Nostalgia Self-Guard] حضور در کانال 0. بازگشت مستقل به کانال 5...",
@@ -65,8 +65,6 @@
     "ربات تلگرام کافه دوستی فعال شد و آماده دریافت پیام است..."
   ],
   "watchdog_tail": [
-    "Bot crashed or exited with error level 0. Restarting in 5 seconds...",
-    "Starting Kaafeh Doosti Bot at Mon 11/02/2026 11:30:37.02",
     "Bot crashed or exited with error level -1. Restarting in 5 seconds...",
     "Starting Kaafeh Doosti Bot at Mon 11/02/2026 12:05:56.17",
     "Bot crashed or exited with error level 1. Restarting in 5 seconds...",
@@ -84,11 +82,14 @@
     "Bot crashed or exited with error level 1. Restarting in 5 seconds...",
     "Starting Kaafeh Doosti Bot at Mon 11/02/2026 14:13:26.20",
     "Bot crashed or exited with error level -1. Restarting in 5 seconds...",
-    "Starting Kaafeh Doosti Bot at Mon 11/02/2026 14:24:04.19"
+    "Starting Kaafeh Doosti Bot at Mon 11/02/2026 14:24:04.19",
+    "Bot crashed or exited with error level -1. Restarting in 5 seconds...",
+    "Starting Kaafeh Doosti Bot at Mon 11/02/2026 14:25:57.17"
   ],
   "teamtalk_sockets": [
-    "TCP    5.57.34.117:52276      185.26.33.57:10333     ESTABLISHED     4644",
-    "TCP    5.57.34.117:52279      185.26.33.57:10333     ESTABLISHED     4644",
-    "TCP    5.57.34.117:52282      185.26.33.57:10333     ESTABLISHED     4644"
+    "TCP    5.57.34.117:52276      185.26.33.57:10333     TIME_WAIT       0",
+    "TCP    5.57.34.117:52318      185.26.33.57:10333     ESTABLISHED     1128",
+    "TCP    5.57.34.117:52321      185.26.33.57:10333     SYN_SENT        1128",
+    "TCP    5.57.34.117:52329      185.26.33.57:10333     ESTABLISHED     1128"
   ]
 }
