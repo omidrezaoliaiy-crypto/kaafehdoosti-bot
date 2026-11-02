@@ -1,0 +1,87 @@
+{
+  "my_id": 1032,
+  "init_snd": 1,
+  "enable_vox": 1,
+  "tests": [
+    {
+      "test": {
+        "samples": 1920,
+        "stream_id": 0,
+        "byref": false
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 1920,
+        "stream_id": 0,
+        "byref": true
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 1920,
+        "stream_id": 1032,
+        "byref": false
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 1920,
+        "stream_id": 1032,
+        "byref": true
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 960,
+        "stream_id": 0,
+        "byref": false
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 960,
+        "stream_id": 0,
+        "byref": true
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 480,
+        "stream_id": 0,
+        "byref": false
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    },
+    {
+      "test": {
+        "samples": 480,
+        "stream_id": 0,
+        "byref": true
+      },
+      "result": false,
+      "flags": 49409,
+      "voice_tx": false
+    }
+  ]
+}
