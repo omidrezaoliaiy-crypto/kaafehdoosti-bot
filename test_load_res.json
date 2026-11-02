@@ -1,0 +1,21 @@
+{
+  "imported": true,
+  "load_time": 0.0,
+  "vol": "25",
+  "radio_init_time": 0.04229927062988281,
+  "radio_playlist_len": 47,
+  "radio_created": true,
+  "connect_res": 1,
+  "connect_time": 0.0,
+  "logged_in": true,
+  "my_id": 975,
+  "connected_flag": true,
+  "flags": 49153,
+  "diag": [
+    "CON_SUCCESS",
+    "LOGIN_CMD:1",
+    "LOGGED_IN:975",
+    "VOL_SET:25:250",
+    "JOIN_CMD:3"
+  ]
+}
