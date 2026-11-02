@@ -1,0 +1,13 @@
+{
+  "devices": [
+    {
+      "id": 1978,
+      "name": "TeamTalk Virtual Sound Device",
+      "in_ch": 2,
+      "out_ch": 2
+    }
+  ],
+  "ins_stream0": 0,
+  "ins_stream1": 0,
+  "flags": 0
+}
