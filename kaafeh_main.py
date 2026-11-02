@@ -4273,8 +4273,13 @@ def music_telegram_sync_worker(bot):
 
 def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
     print(f"شروع سرویس {service_name}...", flush=True)
-    ensure_linux_tt_sdk()
+    try:
+        ensure_linux_tt_sdk()
+    except Exception as e_sdk:
+        print(f"[{service_name}] SDK check warning: {e_sdk}", flush=True)
+
     while True:
+        bot = None
         try:
             bot = bot_class()
             globals()[global_var_name] = bot
@@ -4382,8 +4387,10 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
             time.sleep(1)
 
         except Exception as e:
-            print(f"[{bot.log_prefix}] Fatal error in run_music_bot_loop: {e}", flush=True)
-            time.sleep(3)
+            import traceback
+            log_p = getattr(bot, "log_prefix", service_name) if 'bot' in locals() and bot else service_name
+            print(f"[{log_p}] Fatal error in run_music_bot_loop: {e}\n{traceback.format_exc()}", flush=True)
+            time.sleep(5)
 
 
 def start_radio_worker():
@@ -4494,7 +4501,9 @@ threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
 ensure_radio_worker_alive()
+time.sleep(4)
 ensure_nostalgia_worker_alive()
+time.sleep(2)
 threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
 
 
