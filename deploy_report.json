@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-11-02 12:39:33",
+  "teamtalk_sockets": [
+    "TCP    5.57.34.117:50039      185.26.33.57:10333     ESTABLISHED     5948",
+    "TCP    5.57.34.117:50041      185.26.33.57:10333     ESTABLISHED     5948"
+  ],
+  "console_tail": [
+    "[Nostalgia] Resuming playback of 11_Alame Ashgh.mp3 from 0.2s (byte 42240/59599308)",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] CMD SUCCESS (src 1594)",
+    "[Nostalgia] insertAudioBlock rejected 30 times. Fallback...",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] CMD SUCCESS (src 1595)",
+    "[Nostalgia Self-Guard] ربات در کانال 5 است ولی صدا متوقف است. شروع خودکار پخش...",
+    "[Nostalgia] TG API getUpdates error: <urlopen error timed out>",
+    "[Nostalgia] Restored track by filename to index 9: 11_Alame Ashgh.mp3",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] Auto-starting playback from saved position: 0.2s",
+    "[Nostalgia] apply_current_volume: 25% (gain: 250)",
+    "[Nostalgia] Playing direct voice [10/10]: Homayra - Alame Ashgh (from 0.2s)",
+    "[Nostalgia] CMD SUCCESS (src 1597)",
+    "[Nostalgia] Resuming playback of 11_Alame Ashgh.mp3 from 0.2s (byte 42240/59599308)",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] CMD SUCCESS (src 1598)",
+    "[Nostalgia] insertAudioBlock rejected 30 times. Fallback...",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] CMD SUCCESS (src 1599)",
+    "[Nostalgia Self-Guard] ربات در کانال 5 است ولی صدا متوقف است. شروع خودکار پخش...",
+    "[Nostalgia] Restored track by filename to index 9: 11_Alame Ashgh.mp3",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] Auto-starting playback from saved position: 0.2s",
+    "[Nostalgia] CMD SUCCESS (src 1600)",
+    "[Nostalgia] apply_current_volume: 25% (gain: 250)",
+    "[Nostalgia] Playing direct voice [10/10]: Homayra - Alame Ashgh (from 0.2s)",
+    "[Nostalgia] Resuming playback of 11_Alame Ashgh.mp3 from 0.2s (byte 42240/59599308)",
+    "[Nostalgia] Updating player title: در حال پخش: Homayra - Alame Ashgh | بعدی: Hassan Shamaizadeh - The Medley",
+    "[Nostalgia] CMD SUCCESS (src 1602)"
+  ]
+}
