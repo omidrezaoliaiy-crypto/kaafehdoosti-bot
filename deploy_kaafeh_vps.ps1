@@ -117,13 +117,14 @@ goto RESTART
 
 # Scheduled Task running at startup and user logon forever
 schtasks.exe /Delete /TN "KaafehDoosti_24_7" /F 2>$null
-schtasks.exe /Create /TN "KaafehDoosti_24_7" /TR "cmd.exe /c start `\"KaafehDoosti`\" /min `\"$startBat`\"" /SC ONSTART /RU "SYSTEM" /RL HIGHEST /F
+$taskCmd = 'cmd.exe /c start "KaafehDoosti" /min "' + $startBat + '"'
+schtasks.exe /Create /TN "KaafehDoosti_24_7" /TR $taskCmd /SC ONSTART /RU "SYSTEM" /RL HIGHEST /F
 
 # Kill any existing old main.py process
 Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*main.py*" } | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # Launch now in background
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c start `"KaafehDoosti`\" /min `\"$startBat`\"" -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList ('/c start "KaafehDoosti" /min "' + $startBat + '"') -WindowStyle Hidden
 Start-Sleep -Seconds 4
 
 Write-Host "==========================================" -ForegroundColor Cyan
