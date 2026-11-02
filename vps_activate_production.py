@@ -5,21 +5,12 @@ base_dir = r"C:\KaafehDoostiBot"
 main_py = os.path.join(base_dir, "main.py")
 kaafeh_main_py = os.path.join(base_dir, "kaafeh_main.py")
 sup_py = os.path.join(base_dir, "supervisor.py")
-voice_src = os.path.join(base_dir, "kaafeh_main_voice.py")
 
-print("=== Activating Production Kaafeh Doosti Bots on VPS ===", flush=True)
+print("=== Deploying Full Production on VPS (TeamTalk + Telegram + Soroush) ===", flush=True)
 
-# 1. Update main.py and kaafeh_main.py from kaafeh_main_voice.py if available, or download from GitHub
-if os.path.exists(voice_src) and os.path.getsize(voice_src) > 100000:
-    shutil.copyfile(voice_src, main_py)
-    shutil.copyfile(voice_src, kaafeh_main_py)
-    print(f"Copied {voice_src} to {main_py} and {kaafeh_main_py}", flush=True)
-else:
-    subprocess.run(['curl.exe', '-s', 'https://raw.githubusercontent.com/omidrezaoliaiy-crypto/kaafehdoosti-bot/main/main.py', '-o', main_py], check=False)
-    subprocess.run(['curl.exe', '-s', 'https://raw.githubusercontent.com/omidrezaoliaiy-crypto/kaafehdoosti-bot/main/main.py', '-o', kaafeh_main_py], check=False)
-    print("Downloaded main.py from GitHub", flush=True)
-
-# Download supervisor.py
+# 1. Download latest main.py and kaafeh_main.py
+subprocess.run(['curl.exe', '-s', 'https://raw.githubusercontent.com/omidrezaoliaiy-crypto/kaafehdoosti-bot/main/main.py', '-o', main_py], check=False)
+subprocess.run(['curl.exe', '-s', 'https://raw.githubusercontent.com/omidrezaoliaiy-crypto/kaafehdoosti-bot/main/main.py', '-o', kaafeh_main_py], check=False)
 subprocess.run(['curl.exe', '-s', 'https://raw.githubusercontent.com/omidrezaoliaiy-crypto/kaafehdoosti-bot/main/supervisor.py', '-o', sup_py], check=False)
 
 # 2. Patch ENABLE_TT_BOTS = True
@@ -43,9 +34,3 @@ time.sleep(1)
 py_exe = r"C:\Program Files\Python311\python.exe"
 p = subprocess.Popen([py_exe, sup_py], cwd=base_dir, creationflags=0x00000008) # DETACHED_PROCESS
 print(f"Supervisor successfully launched with PID {p.pid}!", flush=True)
-
-# 5. Write status file
-status_path = os.path.join(base_dir, "activation_status.txt")
-with open(status_path, "w", encoding="utf-8") as f:
-    f.write(f"ACTIVATED|PID:{p.pid}|TIME:{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-print("Activation complete!", flush=True)
