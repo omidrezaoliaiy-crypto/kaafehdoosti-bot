@@ -6,7 +6,7 @@ REPO = 'omidrezaoliaiy-crypto/kaafehdoosti-bot'
 BASE_DIR = r"C:\KaafehDoostiBot"
 CACHE_DIR = os.path.join(BASE_DIR, "music_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
-LOG_FILE = r"C:\download_log.txt"
+LOG_FILE = os.path.join(BASE_DIR, "download_log.txt")
 
 def log(msg):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
@@ -100,7 +100,7 @@ headers = {'Authorization': f'Bearer {TOKEN}', 'Accept': 'application/vnd.github
 sha = None
 try:
     req = urllib.request.Request(put_url, headers=headers)
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req) as resp:
         sha = json.loads(resp.read().decode()).get('sha')
 except:
     pass
