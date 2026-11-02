@@ -1,0 +1,6 @@
+{
+  "has_direct_voice": false,
+  "has_silent_bug": false,
+  "radio_worker_started": true,
+  "play_track_snippet": "def play_track(self, index, start_sec=None):\n        self.stop_all_playback()\n\n        with self.lock:\n            if not self.playlist:\n                return\n            new_idx = index % len(self.playlist)\n            if new_idx == self.current_index:\n                if start_sec is None:\n                    start_sec = getattr(self, \"resume_pos_sec\", 0.0)\n            else:\n                if start_sec is None:\n                    start_sec = 0.0\n\n            self.current_index = new_idx\n    "
+}
