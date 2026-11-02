@@ -1,0 +1,26 @@
+{
+  "gofile": {
+    "status": 200,
+    "ok": true
+  },
+  "pixeldrain": {
+    "status": "HTTP Error 401: Unauthorized",
+    "ok": false
+  },
+  "catbox": {
+    "status": "<urlopen error [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1006)>",
+    "ok": false
+  },
+  "uupload": {
+    "status": "HTTP Error 403: Forbidden",
+    "ok": false
+  },
+  "archive_org": {
+    "status": "<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1006)>",
+    "ok": false
+  },
+  "filebin": {
+    "status": 200,
+    "ok": true
+  }
+}
