@@ -1,0 +1,12 @@
+{
+  "miniaudio": true,
+  "decoded_pcm_len": 34549548,
+  "connect": 1,
+  "logged_in": true,
+  "initSoundInputDevice": 1,
+  "enableVoiceTransmission": 1,
+  "insert_count": 50,
+  "insert_success_count": 0,
+  "flags_during_voice": 49409,
+  "voice_flag_set": false
+}
