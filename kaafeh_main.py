@@ -4394,10 +4394,20 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
 
 
 def start_radio_worker():
-    run_music_bot_loop(RadioMusicBot, "global_radio_bot", "رادیو کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
+    print("[Radio Worker Thread] Started!", flush=True)
+    try:
+        run_music_bot_loop(RadioMusicBot, "global_radio_bot", "رادیو کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
+    except Exception as e:
+        import traceback
+        print(f"[Radio Worker Thread] CRASH: {e}\n{traceback.format_exc()}", flush=True)
 
 def start_nostalgia_worker():
-    run_music_bot_loop(NostalgiaMusicBot, "global_nostalgia_bot", "نستالژی پلیر کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
+    print("[Nostalgia Worker Thread] Started!", flush=True)
+    try:
+        run_music_bot_loop(NostalgiaMusicBot, "global_nostalgia_bot", "نستالژی پلیر کافه دوستی", SHARED_TT_HOST, SHARED_TT_PORT)
+    except Exception as e:
+        import traceback
+        print(f"[Nostalgia Worker Thread] CRASH: {e}\n{traceback.format_exc()}", flush=True)
 
 radio_worker_thread = None
 radio_thread_lock = threading.Lock()
@@ -4447,7 +4457,7 @@ def run_supervisor_watchdog():
 
                     is_connected = (flags & 0x00004000) != 0
                     if not is_connected or not getattr(b, "connected", False):
-                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
+                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد (conn={is_connected}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
                         except Exception:
@@ -4466,7 +4476,7 @@ def run_supervisor_watchdog():
 
                     is_connected = (flags & 0x00004000) != 0
                     if not is_connected or not getattr(nb, "connected", False):
-                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
+                        print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد (conn={is_connected}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             nb.persist_state()
                         except Exception:
@@ -4501,9 +4511,9 @@ threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
 threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
 ensure_radio_worker_alive()
-time.sleep(4)
+time.sleep(5)
 ensure_nostalgia_worker_alive()
-time.sleep(2)
+time.sleep(3)
 threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
 
 
