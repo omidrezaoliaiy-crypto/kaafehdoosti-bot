@@ -1,4 +1,5 @@
 import base64 as _b64
+TELEGRAM_API_BASE = "https://tg.kaafehdoosti.ir"
 # -*- coding: utf-8 -*-
 """
 ربات دو پلتفرمه تلگرام و سروش پلاس برای ثبت‌نام، احراز هویت و یوزردِهی خودکار سرور تیم‌تاک کافه دوستی
@@ -964,8 +965,8 @@ def get_latest_teamtalk_win_link():
 
 # ----------------- تلگرام ای‌پی‌آی -----------------
 def tg_request(method, data=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    headers = {"Content-Type": "application/json"}
+    url = f"{TELEGRAM_API_BASE}/bot{BOT_TOKEN}/{method}"
+    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
     try:
         req_data = json.dumps(data).encode('utf-8') if data else None
         req = urllib.request.Request(url, data=req_data, headers=headers)
@@ -1005,7 +1006,7 @@ def send_voice(chat_id, voice_file_id, caption=None, reply_markup=None):
 
 def send_voice_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
     boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVoice"
+    url = f"{TELEGRAM_API_BASE}/bot{BOT_TOKEN}/sendVoice"
     
     body = bytearray()
     body.extend(f"--{boundary}\r\n".encode())
@@ -1035,7 +1036,7 @@ def send_voice_file(chat_id, filename, file_bytes, caption=None, reply_markup=No
 
 def send_document_file(chat_id, filename, file_bytes, caption=None, reply_markup=None):
     boundary = "----WebKitFormBoundary" + secrets.token_hex(8)
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+    url = f"{TELEGRAM_API_BASE}/bot{BOT_TOKEN}/sendDocument"
     
     body = bytearray()
     body.extend(f"--{boundary}\r\n".encode())
@@ -3528,7 +3529,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
             return seq[0]
 
     def tg_api(self, method, params=None):
-        url = f"https://api.telegram.org/bot{self.tg_token}/{method}"
+        url = f"{TELEGRAM_API_BASE}/bot{self.tg_token}/{method}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
         try:
@@ -3546,7 +3547,7 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
                 self.diag.append("GF_FAIL")
                 return False
             file_path = finfo["result"]["file_path"]
-            download_url = f"https://api.telegram.org/file/bot{self.tg_token}/{file_path}"
+            download_url = f"{TELEGRAM_API_BASE}/file/bot{self.tg_token}/{file_path}"
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
             tmp_dest = dest_path + ".tmp"
@@ -4434,7 +4435,7 @@ def run_bot():
     offset = None
     while True:
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?timeout=30"
+            url = f"{TELEGRAM_API_BASE}/bot{BOT_TOKEN}/getUpdates?timeout=30"
             if offset:
                 url += f"&offset={offset}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
