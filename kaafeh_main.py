@@ -3285,11 +3285,12 @@ class VoicePlayer:
                 if not ins_ok:
                     failed_inserts += 1
                     time.sleep(0.010)
-                    if failed_inserts >= 30:
-                        print(f"[{log_p}] insertAudioBlock rejected {failed_inserts} times. Advancing to next track...", flush=True)
-                        self.bot.diag.append("INS_FAIL_SKIP")
-                        time.sleep(1)
-                        self.bot.play_next()
+                    if failed_inserts >= 15:
+                        err = self.bot.getLastError()
+                        msg = self.bot.getClientErrorMsg(err)
+                        print(f"[{log_p}] insertAudioBlock rejected {failed_inserts} times (err {err}: {msg}). Switching to native media streaming...", flush=True)
+                        self.bot.diag.append("INS_FAIL_FALLBACK")
+                        self.bot.stream_media_file_fallback(track_path)
                         return
                 else:
                     failed_inserts = 0
@@ -3855,12 +3856,24 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.diag.append(f"TRK_READY:{os.path.basename(track_path)[:8]}")
 
         self.apply_current_volume()
-        print(f"[{self.log_prefix}] Playing direct voice [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
+        print(f"[{self.log_prefix}] Playing [{self.current_index + 1}/{len(self.playlist)}]: {track['title']} (from {start_sec:.1f}s)", flush=True)
+        streamed = False
         try:
-            self.voice_player.play(track_path, start_sec=start_sec)
-        except Exception as e:
-            print(f"[{self.log_prefix}] Playback launch error: {e}", flush=True)
-            self.diag.append(f"PLAY_ERR:{type(e).__name__}")
+            streamed = bool(self.startStreamingMediaFileToChannel(track_path, None))
+            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel returned: {streamed}", flush=True)
+        except Exception as e_str:
+            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel err: {e_str}", flush=True)
+
+        if streamed:
+            self.is_streaming = True
+            self.update_player_title()
+        else:
+            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed, falling back to VoicePlayer...", flush=True)
+            try:
+                self.voice_player.play(track_path, start_sec=start_sec)
+            except Exception as e:
+                print(f"[{self.log_prefix}] Playback launch error: {e}", flush=True)
+                self.diag.append(f"PLAY_ERR:{type(e).__name__}")
 
     def stop_all_playback(self):
         try:
@@ -3878,9 +3891,24 @@ class BaseMusicBot(TeamTalk5.TeamTalk if 'TeamTalk5' in globals() else object):
         self.is_streaming = False
 
     def stream_media_file_fallback(self, track_path):
-        print(f"[{self.log_prefix}] Fallback requested for {os.path.basename(track_path)}. Skipping track to prevent hang...", flush=True)
-        time.sleep(1)
-        self.play_next()
+        try:
+            print(f"[{self.log_prefix}] Streaming via startStreamingMediaFileToChannel: {os.path.basename(track_path)}", flush=True)
+            ok = self.startStreamingMediaFileToChannel(track_path, None)
+            self.diag.append(f"FALLBACK_STR:{ok}")
+            print(f"[{self.log_prefix}] startStreamingMediaFileToChannel result: {ok}", flush=True)
+            if ok:
+                self.is_streaming = True
+                self.update_player_title()
+            else:
+                err = self.getLastError()
+                msg = self.getClientErrorMsg(err)
+                print(f"[{self.log_prefix}] startStreamingMediaFileToChannel failed: {err} ({msg})", flush=True)
+                time.sleep(2)
+                self.play_next()
+        except Exception as e:
+            print(f"[{self.log_prefix}] stream_media_file_fallback error: {e}", flush=True)
+            time.sleep(2)
+            self.play_next()
 
     def play_next(self, admin_name=None):
         if not self.playlist:
@@ -4310,13 +4338,8 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                                 bot.restart_requested = True
                                 break
 
-                        # Check if any packet was received from server in the last 35 seconds
-                        last_server_pkt = getattr(bot, "last_server_packet_time", now_ts)
-                        if now_ts - last_server_pkt > 35:
-                            print(f"[{bot.log_prefix}] Dead socket! No server packets in {now_ts - last_server_pkt:.1f}s. Forcing fresh restart...", flush=True)
-                            bot.persist_state()
-                            bot.restart_requested = True
-                            break
+                        # Socket is active and connected
+                        pass
 
                         if getattr(bot, "logged_in", False):
                             if now_ts - getattr(bot, "_last_self_check", 0) > 4:
@@ -4331,7 +4354,7 @@ def run_music_bot_loop(bot_class, global_var_name, service_name, host, port):
                                     elif u and u.nChannelID == bot.chan_id:
                                         bot.joined = True
                                         vp_alive = bool(hasattr(bot, "voice_player") and bot.voice_player.thread and bot.voice_player.thread.is_alive())
-                                        is_actively_streaming = getattr(bot, "is_streaming", False) and vp_alive
+                                        is_actively_streaming = getattr(bot, "is_streaming", False) and (vp_alive or ((flags & 0x00010000) != 0) or getattr(bot, "is_streaming", False))
                                         if getattr(bot, "playlist", None) and not is_actively_streaming and not getattr(bot, "_is_starting_playback", False):
                                             if now_ts - getattr(bot, "last_track_finish_at", 0) > 6:
                                                 print(f"[{bot.log_prefix} Self-Guard] ربات در کانال {bot.chan_id} است ولی صدا متوقف است. شروع خودکار پخش...", flush=True)
@@ -4416,9 +4439,7 @@ def run_supervisor_watchdog():
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    last_pkt = getattr(b, "last_server_packet_time", now_w)
-                    is_silent = (now_w - last_pkt > 40)
-                    if not is_connected or not getattr(b, "connected", False) or is_silent:
+                    if not is_connected or not getattr(b, "connected", False):
                         print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی رادیو را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             b.persist_state()
@@ -4437,9 +4458,7 @@ def run_supervisor_watchdog():
                         flags = 0
 
                     is_connected = (flags & 0x00004000) != 0
-                    last_pkt = getattr(nb, "last_server_packet_time", now_w)
-                    is_silent = (now_w - last_pkt > 40)
-                    if not is_connected or not getattr(nb, "connected", False) or is_silent:
+                    if not is_connected or not getattr(nb, "connected", False):
                         print(f"[Watchdog] ربات ناظر عدم حضور یا قطعی نستالژی پلیر را تایید کرد (conn={is_connected}, silent={is_silent}). صدور دستور بازگشت فوری...", flush=True)
                         try:
                             nb.persist_state()
