@@ -143,8 +143,6 @@ $statusReport = @{
 
 [System.IO.File]::WriteAllText("$botDir\vps_status.json", $statusReport, [System.Text.Encoding]::UTF8)
 
-}
-
 [console]::beep(1000, 300)
 [console]::beep(1500, 500)
 Write-Host "==========================================" -ForegroundColor Green
