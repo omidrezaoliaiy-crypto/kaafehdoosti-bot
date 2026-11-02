@@ -1,9 +1,7 @@
 {
-  "timestamp": "2026-11-02 12:30:34",
-  "radio_lines_count": 11502,
+  "timestamp": "2026-11-02 12:44:44",
+  "radio_lines_count": 11504,
   "radio_tail": [
-    "[Radio] Updating player title: در حال پخش: Ahoora موزیکدل - Dino Donya موزیکدل | بعدی: Ye Ja To Delet (320).mp3",
-    "[Radio] CMD SUCCESS (src 92)",
     "[Radio Self-Guard] ربات در کانال 2 است ولی صدا متوقف است. شروع خودکار پخش...",
     "[Radio] Restored track by filename to index 39: 47_Dino Donya موزیکدل.mp3",
     "[Radio] Updating player title: در حال پخش: Ahoora موزیکدل - Dino Donya موزیکدل | بعدی: Ye Ja To Delet (320).mp3",
@@ -38,6 +36,8 @@
     "[Radio] Direct Voice: Could not decode to PCM. Fallback to media file stream...",
     "[Radio] Updating player title: در حال پخش: Ahoora موزیکدل - Dino Donya موزیکدل | بعدی: Ye Ja To Delet (320).mp3",
     "[Radio] CMD SUCCESS (src 99)",
+    "[Watchdog] ترد رادیو متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید رادیو...",
+    "شروع سرویس رادیو کافه دوستی...",
     "[Watchdog] ترد رادیو متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید رادیو...",
     "شروع سرویس رادیو کافه دوستی...",
     "[Watchdog] ترد رادیو متوقف شده بود! ایجاد و راه‌اندازی فوری ترد جدید رادیو...",
