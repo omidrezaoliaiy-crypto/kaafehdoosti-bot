@@ -1,4 +1,15 @@
+Start-Transcript -Path "C:\nvdasetup_full.log" -Force -Append
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+Write-Host "=== 0. DISABLE UAC TO PREVENT PERMISSION BLOCKS ==="
+try {
+    $uacPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+    Set-ItemProperty -Path $uacPath -Name "EnableLUA" -Value 0 -Force
+    Set-ItemProperty -Path $uacPath -Name "ConsentPromptBehaviorAdmin" -Value 0 -Force
+    Write-Host "UAC disabled."
+} catch {
+    Write-Host "UAC config error: $_"
+}
 
 Write-Host "=== 1. POWER & SLEEP CONFIGURATION ==="
 try {
@@ -190,10 +201,11 @@ if (Test-Path "C:\Users\Default\AppData\Roaming") {
     Copy-Item -Path "$nvdaAppdata\*" -Destination $defaultAppdata -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host "=== 7. PERSISTENT WATCHDOG SCRIPT & TASK ==="
+Write-Host "=== 7. PERSISTENT WATCHDOG SCRIPT ==="
 $watchdogScript = @'
 $nvdaPath = "C:\Program Files (x86)\NVDA\nvda.exe"
 if (-not (Test-Path $nvdaPath)) { $nvdaPath = "C:\Program Files\NVDA\nvda.exe" }
+$urlHandler = "$env:APPDATA\nvda\addons\remote\globalPlugins\remoteClient\url_handler.exe"
 
 while ($true) {
     try {
@@ -205,9 +217,13 @@ while ($true) {
         $p = Get-Process nvda -ErrorAction SilentlyContinue
         if (-not $p) {
             Start-Process -FilePath $nvdaPath
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds 4
+            if (Test-Path $urlHandler) {
+                Start-Process -FilePath $urlHandler -ArgumentList '"nvdaremote://ttdr.ir:6837?key=!13omid81reza&mode=slave"'
+            }
         }
 
+        # Keep console attached
         $qu = query user 2>&1
         if ($qu) {
             foreach ($line in ($qu | Select-Object -Skip 1)) {
@@ -229,64 +245,10 @@ while ($true) {
 '@
 $watchdogScript | Out-File -FilePath "C:\vps_watchdog.ps1" -Encoding utf8
 
-$taskXml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>NVDA and Console KeepAlive Watchdog</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <BootTrigger>
-      <Enabled>true</Enabled>
-    </BootTrigger>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>S-1-5-18</UserId>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>false</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <IdleSettings>
-      <StopOnIdleEnd>false</StopOnIdleEnd>
-      <RestartOnIdle>false</RestartOnIdle>
-    </IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>true</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>4</Priority>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-WindowStyle Hidden -ExecutionPolicy Bypass -File C:\vps_watchdog.ps1</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"@
-$taskXml | Out-File -FilePath "C:\vps_watchdog_task.xml" -Encoding unicode
-schtasks.exe /Create /TN "VPS_KeepAlive_Watchdog" /XML "C:\vps_watchdog_task.xml" /F
-schtasks.exe /Run /TN "VPS_KeepAlive_Watchdog"
-
-$dcBat = "for /f `"skip=1 tokens=3`" %%s in ('query user %USERNAME%') do tscon %%s /dest:console`r`nfor /f `"skip=1 tokens=2`" %%s in ('query user %USERNAME%') do tscon %%s /dest:console`r`n"
-$dcBat | Out-File -FilePath "C:\Users\Administrator\Desktop\Disconnect_KeepAlive.bat" -Encoding ascii
-$dcBat | Out-File -FilePath "C:\Disconnect_KeepAlive.bat" -Encoding ascii
+# Scheduled Task running as Administrator with Highest Privileges
+schtasks.exe /Delete /TN "VPS_KeepAlive_Watchdog" /F 2>&1 | Out-Null
+schtasks.exe /Create /TN "VPS_KeepAlive_Watchdog" /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\vps_watchdog.ps1" /SC ONSTART /RU "SYSTEM" /RL HIGHEST /F
+schtasks.exe /Run /TN "VPS_KeepAlive_Watchdog" 2>&1 | Out-Null
 
 Write-Host "=== 8. RESTART NVDA NOW ==="
 Stop-Process -Name nvda -Force -ErrorAction SilentlyContinue
@@ -306,9 +268,4 @@ $status = "NVDA PID: $($proc.Id), Watchdog Installed, AutoLogon Set, Power Tuned
 $status | Out-File -FilePath "C:\nvda_status_result.txt" -Encoding utf8
 Write-Host $status
 
-Start-Sleep -Seconds 2
-$mySession = (Get-Process -Id $PID).SessionId
-if ($mySession) {
-    Write-Host "Redirecting session $mySession to console..."
-    tscon $mySession /dest:console
-}
+Stop-Transcript
