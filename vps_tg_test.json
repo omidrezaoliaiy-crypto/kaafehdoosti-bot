@@ -1,0 +1,4 @@
+{
+  "env": {},
+  "test_req": "{\"ok\":true,\"result\":{\"id\":8600063713,\"is_bot\":true,\"first_name\":\"\\u067e\\u0644\\u06cc\\u0631 \\u0627\\u062e\\u062a\\u0635\\u0627\\u0635\\u06cc \\u06a9\\u0627\\u0641\\u0647 \\u062f\\u0648\\u0633\\u062a\\u06cc\",\"username\":\"kaafehdoostimusicbot\",\"can_join_groups\":true,\"can_read_all_group_messages\":false,\"supports_inline_queries\":false,\"supports_guest_queries\":false,\"can_connect_to_business\":false,\"has_main_web_app\":false,\"has_topics_enabled\":false,\"allows_users_to_create_topics\":false,\"can_manage_bots\":false,\"supports_join_request_queries\":false}}"
+}
