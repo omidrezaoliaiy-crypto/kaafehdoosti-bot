@@ -1,0 +1,13 @@
+{
+  "radio_files_count": 46,
+  "nostalgia_files_count": 245,
+  "chan_id": 28,
+  "radio_play_sec": 2.0,
+  "radio_streaming": true,
+  "radio_after_vol_sec": 4.0,
+  "radio_stopped": true,
+  "nostalgia_play_sec": 6.0,
+  "nostalgia_streaming": true,
+  "nostalgia_stopped": true,
+  "audit_success": true
+}
