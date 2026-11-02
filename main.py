@@ -2910,10 +2910,22 @@ def ensure_linux_tt_sdk():
 
 # ----------------- بارگذاری SDK تیم‌تاک و راه‌اندازی رادیو کافه دوستی -----------------
 ensure_linux_tt_sdk()
-if sys.platform == "win32":
-    sys.path.insert(0, r"C:\Users\Lenovo\.gemini\antigravity\scratch\TeamTalkPy")
-else:
+base_tt_dir = os.path.dirname(os.path.abspath(__file__))
+if base_tt_dir not in sys.path:
+    sys.path.insert(0, base_tt_dir)
+if os.getcwd() not in sys.path:
     sys.path.insert(0, os.getcwd())
+if sys.platform == "win32":
+    if os.path.exists(r"C:\Program Files\TeamTalk5"):
+        try:
+            os.add_dll_directory(r"C:\Program Files\TeamTalk5")
+        except Exception:
+            pass
+    if os.path.exists(base_tt_dir):
+        try:
+            os.add_dll_directory(base_tt_dir)
+        except Exception:
+            pass
 
 try:
     import TeamTalk5
