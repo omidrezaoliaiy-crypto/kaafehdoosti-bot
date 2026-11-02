@@ -4503,12 +4503,17 @@ def keep_alive_worker():
 threading.Thread(target=keep_alive_worker, daemon=True).start()
 threading.Thread(target=get_tt_existing_cached, daemon=True).start()
 threading.Thread(target=run_inactivity_checker, daemon=True).start()
-threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
-ensure_radio_worker_alive()
-time.sleep(5)
-ensure_nostalgia_worker_alive()
-time.sleep(3)
-threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
+# کنترل فعال‌سازی اتصال ربات‌های تیم‌تاک (پیش‌فرض خاموش طبق دستور کاربر تا تکمیل نهایی تست‌ها)
+ENABLE_TT_BOTS = os.environ.get("ENABLE_TT_BOTS", "0") == "1"
+if ENABLE_TT_BOTS:
+    threading.Thread(target=monitor_teamtalk_activity, daemon=True).start()
+    ensure_radio_worker_alive()
+    time.sleep(5)
+    ensure_nostalgia_worker_alive()
+    time.sleep(3)
+    threading.Thread(target=run_supervisor_watchdog, daemon=True).start()
+else:
+    print("[TeamTalk] تمام ربات‌های تیم‌تاک موقتاً طبق دستور غیرفعال شدند تا تست‌ها کامل شوند.", flush=True)
 
 
 # ----------------- حلقه دریافت پیام‌های سروش پلاس -----------------
