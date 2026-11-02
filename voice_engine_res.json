@@ -1,0 +1,12 @@
+{
+  "connected": 1,
+  "logged_in": true,
+  "channel_id": 28,
+  "track1_playing_sec": 4.04,
+  "track1_is_playing": true,
+  "track1_after_vol_sec": 7.08,
+  "stopped_ok": true,
+  "track2_playing_sec": 14.16,
+  "track2_is_playing": true,
+  "all_tests_passed": true
+}
