@@ -1,9 +1,9 @@
 {
   "TotalRAM_GB": 3,
-  "FreeRAM_GB": 1.05,
+  "FreeRAM_GB": 1.02,
   "TotalDisk_GB": 29.46,
-  "FreeDisk_GB": 5.25,
-  "UsedDisk_GB": 24.21,
+  "FreeDisk_GB": 6.5,
+  "UsedDisk_GB": 22.96,
   "CPU_Name": [
     "Intel(R) Xeon(R) CPU E5-2687W v4 @ 3.00GHz",
     "Intel(R) Xeon(R) CPU E5-2687W v4 @ 3.00GHz"
