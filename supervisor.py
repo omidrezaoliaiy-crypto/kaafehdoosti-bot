@@ -4,6 +4,10 @@ import subprocess
 import time
 import sys
 
+# Ensure TeamTalk bots are enabled on VPS 24/7 supervisor
+os.environ["ENABLE_TT_BOTS"] = "1"
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
 BASE_DIR = r"C:\KaafehDoostiBot"
 PYTHON_EXE = r"C:\Program Files\Python311\python.exe"
 MAIN_PY = os.path.join(BASE_DIR, "main.py")
@@ -19,17 +23,20 @@ def log(msg):
     except:
         pass
 
-log("Supervisor service initialized.")
+log("Supervisor service initialized with ENABLE_TT_BOTS=1.")
 
 while True:
-    log("Starting Kaafeh Doosti main.py...")
+    log("Starting Kaafeh Doosti main.py via Supervisor...")
     try:
         with open(CONSOLE_LOG, "a", encoding="utf-8") as out:
+            env = os.environ.copy()
+            env["ENABLE_TT_BOTS"] = "1"
             p = subprocess.Popen(
                 [PYTHON_EXE, MAIN_PY],
                 cwd=BASE_DIR,
                 stdout=out,
-                stderr=subprocess.STDOUT
+                stderr=subprocess.STDOUT,
+                env=env
             )
             log(f"Bot process started with PID {p.pid}")
             p.wait()
